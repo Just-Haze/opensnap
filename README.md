@@ -35,15 +35,6 @@ OpenSnap is a free, open-source screenshot tool with beautiful backgrounds, anno
   - PNG, JPG, WebP formats
   - Copy directly to clipboard
 
-## Tech Stack
-
-- Electron
-- React 18
-- TypeScript
-- Vite
-- Tailwind CSS
-- Radix UI
-
 ## Getting Started
 
 ### Prerequisites
@@ -64,6 +55,14 @@ npm install
 # Run in development mode
 npm run dev
 ```
+
+## Release
+
+Latest release: https://github.com/Just-Haze/opensnap/releases/latest
+
+Windows downloads:
+- Installer: https://github.com/Just-Haze/opensnap/releases/download/v1.0.0-beta/OpenSnap%20Setup%201.0.0.exe
+- Portable: https://github.com/Just-Haze/opensnap/releases/download/v1.0.0-beta/OpenSnap-1.0.0-portable.exe
 
 ### Building
 
