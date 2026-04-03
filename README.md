@@ -60,10 +60,6 @@ npm run dev
 
 Latest release: https://github.com/Just-Haze/opensnap/releases/latest
 
-Windows downloads:
-- Installer: https://github.com/Just-Haze/opensnap/releases/download/v1.0.0-beta/OpenSnap%20Setup%201.0.0.exe
-- Portable: https://github.com/Just-Haze/opensnap/releases/download/v1.0.0-beta/OpenSnap-1.0.0-portable.exe
-
 ### Building
 
 ```bash
@@ -72,8 +68,6 @@ npm run build
 
 # Build for specific platforms
 npm run build:win    # Windows
-npm run build:mac    # macOS
-npm run build:linux  # Linux
 ```
 
 ## Usage
