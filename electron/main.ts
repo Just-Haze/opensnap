@@ -9,9 +9,27 @@ declare module 'electron' {
   }
 }
 
+// Type for region capture data stored globally
+interface RegionCaptureData {
+  id: number
+  screenshot: string
+  width: number
+  height: number
+  scaleFactor: number
+  physicalWidth: number
+  physicalHeight: number
+}
+
+declare global {
+  var regionCaptureData: RegionCaptureData | null
+}
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let settingsWindow: BrowserWindow | null = null
+let regionCaptureActive = false
+const regionCaptureWindows = new Map<number, BrowserWindow>()
+let regionRestoreState = { main: false, settings: false }
 
 // Get Vite dev server URL from environment
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
@@ -108,7 +126,22 @@ function setAutoStart(enable: boolean) {
 // Create system tray
 function createTray() {
   tray = new Tray(resolveIconPath())
+  tray.setToolTip('OpenSnap - Screenshot Tool')
+  updateTrayMenu(loadSettings())
   
+  // Double-click to show/hide main window
+  tray.on('double-click', () => {
+    if (mainWindow?.isVisible()) {
+      mainWindow.hide()
+    } else {
+      showMainWindow()
+    }
+  })
+}
+
+function updateTrayMenu(settings: AppSettings) {
+  if (!tray) return
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Open OpenSnap',
@@ -117,10 +150,10 @@ function createTray() {
       }
     },
     {
-      label: 'Take Screenshot',
-      accelerator: 'CommandOrControl+Shift+S',
+      label: 'Capture Region',
+      accelerator: settings.captureHotkey || undefined,
       click: () => {
-        takeScreenshot()
+        startRegionCapture()
       }
     },
     { type: 'separator' },
@@ -138,18 +171,8 @@ function createTray() {
       }
     }
   ])
-  
-  tray.setToolTip('OpenSnap - Screenshot Tool')
+
   tray.setContextMenu(contextMenu)
-  
-  // Double-click to show/hide main window
-  tray.on('double-click', () => {
-    if (mainWindow?.isVisible()) {
-      mainWindow.hide()
-    } else {
-      showMainWindow()
-    }
-  })
 }
 
 function showMainWindow() {
@@ -175,10 +198,13 @@ function createMainWindow() {
       contextIsolation: true,
       sandbox: false
     },
-    frame: true,
+    frame: false, // Custom title bar
+    titleBarStyle: 'hidden',
+    titleBarOverlay: false,
     show: !settings.startMinimized,
     title: 'OpenSnap - Screenshot Tool',
-    icon: resolveIconPath()
+    icon: resolveIconPath(),
+    backgroundColor: '#09090b'
   })
 
   // Show window when ready (unless starting minimized)
@@ -196,6 +222,15 @@ function createMainWindow() {
     const indexPath = resolveIndexPath()
     mainWindow.loadFile(indexPath)
   }
+
+  // Track maximize state changes
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window-maximized-change', true)
+  })
+  
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window-maximized-change', false)
+  })
 
   // Handle window close
   mainWindow.on('close', (event) => {
@@ -277,27 +312,150 @@ function showSettingsWindow() {
   }
 }
 
-// Quick screenshot function for tray
-function takeScreenshot() {
-  // This will trigger the same screenshot logic as the main app
-  if (mainWindow) {
-    mainWindow.webContents.send('take-screenshot-from-tray')
-  } else {
-    // If main window is not open, create it temporarily hidden and take screenshot
-    createMainWindow()
-    mainWindow?.webContents.once('did-finish-load', () => {
-      mainWindow?.webContents.send('take-screenshot-from-tray')
-    })
+function hideCaptureWindows() {
+  regionRestoreState = {
+    main: Boolean(mainWindow && mainWindow.isVisible()),
+    settings: Boolean(settingsWindow && settingsWindow.isVisible())
+  }
+
+  if (mainWindow && mainWindow.isVisible()) {
+    mainWindow.hide()
+  }
+
+  if (settingsWindow && settingsWindow.isVisible()) {
+    settingsWindow.hide()
   }
 }
 
+function restoreCaptureWindows() {
+  if (regionRestoreState.main) {
+    showMainWindow()
+  }
 
+  if (regionRestoreState.settings) {
+    showSettingsWindow()
+  }
+  regionRestoreState = { main: false, settings: false }
+}
+
+function closeRegionCaptureWindows() {
+  regionCaptureWindows.forEach((window) => {
+    window.close()
+  })
+  regionCaptureWindows.clear()
+}
+
+async function startRegionCapture() {
+  if (regionCaptureActive) return
+  regionCaptureActive = true
+
+  try {
+    // Get the primary display
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width, height } = primaryDisplay.size
+    const scaleFactor = primaryDisplay.scaleFactor
+
+    // Capture the screen first using desktopCapturer
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { 
+        width: Math.round(width * scaleFactor), 
+        height: Math.round(height * scaleFactor) 
+      }
+    })
+
+    const primarySource = sources.find(s => s.display_id === String(primaryDisplay.id)) || sources[0]
+    
+    if (!primarySource) {
+      console.error('No screen source found')
+      regionCaptureActive = false
+      return
+    }
+
+    // Get the screenshot as base64
+    const screenshot = primarySource.thumbnail.toDataURL()
+
+    hideCaptureWindows()
+
+    // Create a single overlay window for region selection
+    const overlay = new BrowserWindow({
+      x: primaryDisplay.bounds.x,
+      y: primaryDisplay.bounds.y,
+      width: width,
+      height: height,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: false,
+      fullscreen: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      focusable: true,
+      hasShadow: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.cjs'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false
+      }
+    })
+
+    overlay.setIgnoreMouseEvents(false)
+    overlay.setAlwaysOnTop(true, 'screen-saver')
+
+    // Store screenshot data to be retrieved by the overlay
+    const displayData: RegionCaptureData = {
+      id: primaryDisplay.id,
+      screenshot,
+      width,
+      height,
+      scaleFactor,
+      physicalWidth: Math.round(width * scaleFactor),
+      physicalHeight: Math.round(height * scaleFactor)
+    }
+
+    // Store in a global variable that can be accessed via IPC
+    global.regionCaptureData = displayData
+
+    if (VITE_DEV_SERVER_URL) {
+      overlay.loadURL(`${VITE_DEV_SERVER_URL}#region-capture?display=${primaryDisplay.id}`)
+    } else {
+      const indexPath = resolveIndexPath()
+      overlay.loadFile(indexPath, { hash: `region-capture?display=${primaryDisplay.id}` })
+    }
+
+    overlay.once('ready-to-show', () => {
+      overlay.show()
+      overlay.focus()
+    })
+
+    overlay.on('closed', () => {
+      regionCaptureWindows.delete(primaryDisplay.id)
+      global.regionCaptureData = null
+    })
+
+    regionCaptureWindows.set(primaryDisplay.id, overlay)
+  } catch (error) {
+    console.error('Failed to start region capture:', error)
+    regionCaptureActive = false
+    restoreCaptureWindows()
+  }
+}
 
 // Get all available screens and windows  
-async function getSources(): Promise<Array<{ id: string; name: string; thumbnail: string; icon?: string }>> {
+async function getSources(): Promise<Array<{ id: string; name: string; thumbnail: string; icon?: string; displayId?: string }>> {
+  // Get display info for proper scaling
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const scaleFactor = primaryDisplay.scaleFactor || 1
+  
+  // Use larger thumbnail size for better quality previews (scaled for high DPI)
+  const thumbnailWidth = Math.round(640 * scaleFactor)
+  const thumbnailHeight = Math.round(400 * scaleFactor)
+  
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],
-    thumbnailSize: { width: 400, height: 300 },
+    thumbnailSize: { width: thumbnailWidth, height: thumbnailHeight },
     fetchWindowIcons: true
   })
   
@@ -307,8 +465,15 @@ async function getSources(): Promise<Array<{ id: string; name: string; thumbnail
     if (source.name === '' || source.name.includes('Task Switching')) {
       return false
     }
-    // Skip very small windows (likely system UI elements)
-    if (source.thumbnail.getSize().width < 100 || source.thumbnail.getSize().height < 100) {
+    // Skip windows with no content (likely minimized or system UI)
+    const thumbSize = source.thumbnail.getSize()
+    if (thumbSize.width < 50 || thumbSize.height < 50) {
+      return false
+    }
+    // Skip specific system windows on Windows
+    if (source.name === 'Program Manager' || 
+        source.name.includes('Windows Input Experience') ||
+        source.name.includes('TextInputHost')) {
       return false
     }
     return true
@@ -318,145 +483,9 @@ async function getSources(): Promise<Array<{ id: string; name: string; thumbnail
     id: source.id,
     name: source.name,
     thumbnail: source.thumbnail.toDataURL(),
-    icon: source.appIcon ? source.appIcon.toDataURL() : undefined
+    icon: source.appIcon ? source.appIcon.toDataURL() : undefined,
+    displayId: source.display_id
   }))
-}
-
-// Attempt to crop window decorations from captured image
-function cropWindowDecorations(thumbnail: Electron.NativeImage): Electron.NativeImage {
-  try {
-    const size = thumbnail.getSize()
-    
-    // On Windows, typical window decorations are:
-    // - Title bar: ~30-32px at top
-    // - Borders: ~8px on sides and bottom (varies with DPI scaling)
-    
-    // Get the scale factor for DPI awareness
-    const scaleFactor = screen.getPrimaryDisplay().scaleFactor
-    
-    // Estimate decoration sizes (these are typical Windows 10/11 values)
-    const titleBarHeight = Math.round(31 * scaleFactor)
-    const borderWidth = Math.round(8 * scaleFactor)
-    
-    // Only crop if the window is large enough to have meaningful content after cropping
-    const minContentWidth = 200
-    const minContentHeight = 150
-    
-    const croppedWidth = size.width - (borderWidth * 2)
-    const croppedHeight = size.height - titleBarHeight - borderWidth
-    
-    if (croppedWidth >= minContentWidth && croppedHeight >= minContentHeight) {
-      // Create a cropped version
-      const cropRect = {
-        x: borderWidth,
-        y: titleBarHeight,
-        width: croppedWidth,
-        height: croppedHeight
-      }
-      
-      return thumbnail.crop(cropRect)
-    }
-  } catch (error) {
-    // Failed to crop window decorations, return original
-  }
-  
-  // Return original if cropping fails or isn't suitable
-  return thumbnail
-}
-
-// Capture a specific source at full resolution
-async function captureSource(sourceId: string): Promise<{ dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number } | null> {
-  try {
-    const isWindowSource = sourceId.startsWith('window:')
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const scaleFactor = primaryDisplay.scaleFactor
-    
-    if (isWindowSource) {
-      // For window capture, use a high resolution but consistent approach
-      const sources = await desktopCapturer.getSources({
-        types: ['window'],
-        thumbnailSize: { width: 2560, height: 1440 } // Fixed high resolution
-      })
-      
-      const source = sources.find(s => s.id === sourceId)
-      if (source && source.thumbnail) {
-        let thumbnail = source.thumbnail
-        const size = thumbnail.getSize()
-        
-        // Try to crop window decorations for better consistency
-        thumbnail = cropWindowDecorations(thumbnail)
-        const finalSize = thumbnail.getSize()
-        
-        return {
-          dataUrl: thumbnail.toDataURL('image/png'),
-          width: finalSize.width,
-          height: finalSize.height,
-          // For windows, we use the captured size as logical since cropping removes scale variations
-          logicalWidth: finalSize.width,
-          logicalHeight: finalSize.height
-        }
-      }
-    } else {
-      // Screen capture - use actual screen resolution scaled appropriately
-      const displays = screen.getAllDisplays()
-      const targetDisplay = displays.find(display => `screen:${display.id}` === sourceId) || primaryDisplay
-      
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { 
-          width: targetDisplay.size.width * targetDisplay.scaleFactor,
-          height: targetDisplay.size.height * targetDisplay.scaleFactor
-        }
-      })
-      
-      const source = sources.find(s => s.id === sourceId)
-      if (source && source.thumbnail) {
-        const thumbnail = source.thumbnail
-        const size = thumbnail.getSize()
-        return {
-          dataUrl: thumbnail.toDataURL('image/png'),
-          width: size.width,
-          height: size.height,
-          logicalWidth: targetDisplay.size.width,
-          logicalHeight: targetDisplay.size.height
-        }
-      }
-    }
-  } catch (error) {
-    // Failed to capture source
-  }
-  
-  return null
-}
-
-// Capture full screen
-async function captureFullScreen(): Promise<{ dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number } | null> {
-  try {
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width, height } = primaryDisplay.size // Logical size
-    const scaleFactor = primaryDisplay.scaleFactor
-    
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width: width * scaleFactor, height: height * scaleFactor }
-    })
-
-    if (sources.length > 0) {
-      const thumbnail = sources[0].thumbnail
-      const size = thumbnail.getSize()
-      return {
-        dataUrl: thumbnail.toDataURL('image/png'),
-        width: size.width,   // Physical pixels
-        height: size.height, // Physical pixels
-        logicalWidth: width,  // Logical pixels
-        logicalHeight: height // Logical pixels
-      }
-    }
-  } catch (error) {
-    // Failed to capture full screen
-  }
-  
-  return null
 }
 
 // Default shortcuts
@@ -476,12 +505,7 @@ function registerGlobalShortcuts() {
     // Capture screen - Open source picker
     if (currentShortcuts.captureScreen) {
       globalShortcut.register(currentShortcuts.captureScreen, async () => {
-        if (mainWindow) {
-          const sources = await getSources()
-          mainWindow.webContents.send('sources-available', sources)
-          mainWindow.show()
-          mainWindow.focus()
-        }
+        startRegionCapture()
       })
     }
 
@@ -489,12 +513,9 @@ function registerGlobalShortcuts() {
     if (currentShortcuts.captureFullScreen) {
       globalShortcut.register(currentShortcuts.captureFullScreen, async () => {
         if (mainWindow) {
-          const screenshot = await captureFullScreen()
-          if (screenshot) {
-            mainWindow.webContents.send('screenshot-captured', screenshot)
-            mainWindow.show()
-            mainWindow.focus()
-          }
+          mainWindow.webContents.send('request-fullscreen-capture')
+          mainWindow.show()
+          mainWindow.focus()
         }
       })
     }
@@ -515,12 +536,9 @@ function registerGlobalShortcuts() {
     if (currentShortcuts.captureFullScreenQuick) {
       globalShortcut.register(currentShortcuts.captureFullScreenQuick, async () => {
         if (mainWindow) {
-          const screenshot = await captureFullScreen()
-          if (screenshot) {
-            mainWindow.webContents.send('screenshot-captured', screenshot)
-            mainWindow.show()
-            mainWindow.focus()
-          }
+          mainWindow.webContents.send('request-fullscreen-capture')
+          mainWindow.show()
+          mainWindow.focus()
         }
       })
     }
@@ -529,19 +547,143 @@ function registerGlobalShortcuts() {
   }
 }
 
-// IPC Handlers
 // ============ IPC HANDLERS ============
+
+// Window control handlers (for custom title bar)
+ipcMain.handle('window-minimize', () => {
+  mainWindow?.minimize()
+})
+
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize()
+  } else {
+    mainWindow?.maximize()
+  }
+})
+
+ipcMain.handle('window-close', () => {
+  mainWindow?.close()
+})
+
+ipcMain.handle('window-is-maximized', () => {
+  return mainWindow?.isMaximized() || false
+})
 
 ipcMain.handle('get-sources', async () => {
   return await getSources()
 })
 
-ipcMain.handle('capture-source', async (_, sourceId: string) => {
-  return await captureSource(sourceId)
+ipcMain.handle('get-screen-sources', async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: 1, height: 1 }
+  })
+  return sources.map(source => ({
+    id: source.id,
+    name: source.name,
+    displayId: source.display_id
+  }))
 })
 
-ipcMain.handle('capture-fullscreen', async () => {
-  return await captureFullScreen()
+// Get window-specific capture info for high quality capture
+ipcMain.handle('get-window-info', async (_, sourceId: string) => {
+  try {
+    // For window sources, we need to get the actual window bounds
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 1920, height: 1080 },
+      fetchWindowIcons: false
+    })
+    
+    const source = sources.find(s => s.id === sourceId)
+    if (!source) return null
+    
+    const thumbSize = source.thumbnail.getSize()
+    const primaryDisplay = screen.getPrimaryDisplay()
+    
+    return {
+      id: source.id,
+      name: source.name,
+      width: thumbSize.width,
+      height: thumbSize.height,
+      scaleFactor: primaryDisplay.scaleFactor
+    }
+  } catch (error) {
+    console.error('Error getting window info:', error)
+    return null
+  }
+})
+
+ipcMain.handle('capture-region', async () => {
+  startRegionCapture()
+  return true
+})
+
+ipcMain.handle('region-capture-hide', async () => {
+  regionCaptureWindows.forEach((window) => window.hide())
+  return true
+})
+
+ipcMain.handle('region-capture-ready', async (_event, displayId) => {
+  const overlay = regionCaptureWindows.get(Number(displayId))
+  if (!overlay) return false
+  overlay.showInactive()
+  overlay.focus()
+  return true
+})
+
+// Get pre-captured screenshot data for region selection
+ipcMain.handle('get-region-capture-data', async () => {
+  return global.regionCaptureData || null
+})
+
+ipcMain.handle('region-capture-cancel', async () => {
+  if (!regionCaptureActive) return true
+  regionCaptureActive = false
+  global.regionCaptureData = null
+  closeRegionCaptureWindows()
+  restoreCaptureWindows()
+  return true
+})
+
+ipcMain.handle('region-capture-complete', async (_, payload) => {
+  if (!regionCaptureActive) return { success: false }
+
+  regionCaptureActive = false
+  global.regionCaptureData = null
+  closeRegionCaptureWindows()
+  restoreCaptureWindows()
+
+  if (payload && payload.dataUrl) {
+    mainWindow?.webContents.send('screenshot-captured', payload)
+    showMainWindow()
+    return { success: true }
+  }
+
+  return { success: false }
+})
+
+ipcMain.handle('get-display-info', async (_event, displayId) => {
+  const displays = screen.getAllDisplays()
+  const display = displays.find(item => String(item.id) === String(displayId))
+  if (!display) return null
+  return {
+    id: display.id,
+    scaleFactor: display.scaleFactor,
+    bounds: display.bounds,
+    size: display.size
+  }
+})
+
+ipcMain.handle('get-primary-display-info', async () => {
+  const display = screen.getPrimaryDisplay()
+  return {
+    id: display.id,
+    scaleFactor: display.scaleFactor,
+    bounds: display.bounds,
+    size: display.size
+  }
 })
 
 // Add handler for updating shortcuts
@@ -603,6 +745,11 @@ ipcMain.handle('open-external', async (_, url: string) => {
   await shell.openExternal(url)
 })
 
+ipcMain.handle('update-tray-menu', async (_, settings: AppSettings) => {
+  updateTrayMenu(settings)
+  return true
+})
+
 // Settings IPC Handlers
 ipcMain.handle('get-settings', () => {
   return loadSettings()
@@ -613,6 +760,8 @@ ipcMain.handle('save-settings', (_, settings: AppSettings) => {
   
   // Apply settings that affect the app immediately
   setAutoStart(settings.autoStart)
+  updateTrayMenu(settings)
+  mainWindow?.webContents.send('settings-updated', settings)
   
   // Update global shortcuts if hotkey changed
   if (settings.captureHotkey !== currentShortcuts.captureScreen) {
@@ -627,7 +776,9 @@ ipcMain.handle('reset-settings', () => {
   saveSettings(defaultSettings)
   setAutoStart(defaultSettings.autoStart)
   currentShortcuts.captureScreen = defaultSettings.captureHotkey
+  updateTrayMenu(defaultSettings)
   registerGlobalShortcuts()
+  mainWindow?.webContents.send('settings-updated', defaultSettings)
   return defaultSettings
 })
 
@@ -638,6 +789,7 @@ app.whenReady().then(() => {
   
   // Apply auto-start setting
   setAutoStart(settings.autoStart)
+  updateTrayMenu(settings)
   
   // Update shortcuts from settings
   if (settings.captureHotkey) {

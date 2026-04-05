@@ -1,4 +1,8 @@
-import { MousePointer2, Type, ArrowUpRight, Square, Circle, Download, Copy, RefreshCcw, Eraser } from 'lucide-react'
+import { 
+  MousePointer2, Type, ArrowUpRight, Square, Circle, 
+  Download, Copy, RefreshCcw, Eraser, 
+  Crop, Hand, Undo2, Redo2 
+} from 'lucide-react'
 import { ANNOTATION_COLORS } from '../constants'
 
 interface ToolbarProps {
@@ -10,6 +14,10 @@ interface ToolbarProps {
   onCopy: () => void
   onClearAnnotations: () => void
   onBackToPicker: () => void
+  onUndo: () => void
+  onRedo: () => void
+  canUndo: boolean
+  canRedo: boolean
 }
 
 export default function Toolbar({ 
@@ -20,10 +28,16 @@ export default function Toolbar({
   onSave,
   onCopy,
   onClearAnnotations,
-  onBackToPicker
+  onBackToPicker,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo
 }: ToolbarProps) {
   const tools = [
     { id: 'select', icon: MousePointer2, label: 'Select' },
+    { id: 'hand', icon: Hand, label: 'Hand' },
+    { id: 'crop', icon: Crop, label: 'Crop' },
     { id: 'text', icon: Type, label: 'Text' },
     { id: 'arrow', icon: ArrowUpRight, label: 'Arrow' },
     { id: 'rect', icon: Square, label: 'Rectangle' },
@@ -77,7 +91,30 @@ export default function Toolbar({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 pl-2 pr-1">
+        <div className="flex items-center gap-1 pl-2 pr-1">
+          <div className="flex items-center gap-1 pr-1 mr-1 border-r border-white/5">
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className={`p-3.5 rounded-[20px] transition-all duration-300 ${
+                canUndo ? 'text-zinc-400 hover:bg-zinc-800/80 hover:text-white' : 'text-zinc-700 opacity-50 cursor-not-allowed'
+              }`}
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className={`p-3.5 rounded-[20px] transition-all duration-300 ${
+                canRedo ? 'text-zinc-400 hover:bg-zinc-800/80 hover:text-white' : 'text-zinc-700 opacity-50 cursor-not-allowed'
+              }`}
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 className="w-5 h-5" />
+            </button>
+          </div>
+
           <button
             onClick={onClearAnnotations}
             className="p-3.5 hover:bg-red-500/10 rounded-[20px] text-zinc-500 hover:text-red-400 transition-all duration-300"

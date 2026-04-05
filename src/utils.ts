@@ -2,6 +2,7 @@ import { STORAGE_KEY } from './constants'
 
 export function loadSettings() {
   try {
+    if (typeof localStorage === 'undefined') return null
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
       return JSON.parse(stored)

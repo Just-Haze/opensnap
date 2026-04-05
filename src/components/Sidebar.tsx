@@ -23,24 +23,24 @@ export default function Sidebar({
   scale, setScale
 }: SidebarProps) {
   return (
-    <div className="w-80 bg-zinc-950/80 backdrop-blur-3xl border-l border-white/5 h-screen overflow-y-auto custom-scrollbar flex flex-col shadow-[-20px_0_50px_rgba(0,0,0,0.5)] animate-in slide-in-from-right-8 duration-1000">
-      <div className="p-8 border-b border-white/5 flex items-center gap-3">
+    <div className="w-80 bg-zinc-950/80 backdrop-blur-3xl border-l border-white/5 h-screen overflow-hidden flex flex-col shadow-[-20px_0_50px_rgba(0,0,0,0.5)] animate-in slide-in-from-right-8 duration-1000">
+      <div className="p-6 border-b border-white/5 flex items-center gap-3 shrink-0">
         <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
           <Settings2 className="w-4 h-4 text-indigo-400" />
         </div>
         <h2 className="font-black text-white tracking-tight uppercase text-sm">Fine Tune</h2>
       </div>
 
-      <div className="flex-1 px-4 py-8 space-y-12">
+      <div className="flex-1 px-4 py-4 flex flex-col gap-6 overflow-y-auto">
         {/* Layout Section */}
-        <section className="space-y-8">
+        <section className="flex flex-col gap-4 shrink-0">
           <div className="flex items-center gap-2 px-4">
             <Maximize className="w-4 h-4 text-zinc-500" />
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Geometry</h3>
           </div>
           
-          <div className="space-y-10 px-4">
-            <div className="space-y-4">
+          <div className="flex flex-col gap-4 px-4">
+            <div className="space-y-3">
               <div className="flex justify-between items-end">
                 <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Padding</label>
                 <span className="text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md">{padding}px</span>
@@ -52,13 +52,13 @@ export default function Sidebar({
               />
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex justify-between items-end">
                 <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Canvas Scale</label>
-                <span className="text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md">{scale}%</span>
+                <span className="text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md">{Math.round(scale)}%</span>
               </div>
               <input 
-                type="range" min="10" max="200" step="2"
+                type="range" min="10" max="100" step="2"
                 value={scale} onChange={(e) => setScale(Number(e.target.value))}
                 className="w-full h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-indigo-500 transition-all hover:bg-zinc-700"
               />
@@ -67,19 +67,19 @@ export default function Sidebar({
         </section>
 
         {/* Background Section */}
-        <section className="space-y-8">
+        <section className="flex flex-col gap-4 shrink-0">
           <div className="flex items-center gap-2 px-4">
             <Palette className="w-4 h-4 text-zinc-500" />
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Backdrop</h3>
           </div>
 
           <div className="px-4">
-            <div className="flex p-1 bg-zinc-900 rounded-xl mb-8 border border-white/5">
+            <div className="flex p-1 bg-zinc-900 rounded-xl mb-4 border border-white/5">
               {['transparent', 'solid', 'gradient'].map((type) => (
                 <button
                   key={type}
                   onClick={() => setBackground({ ...background, type: type as any })}
-                  className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all duration-300 ${
+                  className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all duration-300 ${
                     background.type === type 
                       ? 'bg-zinc-800 text-white shadow-xl border border-white/5' 
                       : 'text-zinc-500 hover:text-zinc-400'
@@ -106,7 +106,7 @@ export default function Sidebar({
             )}
 
             {background.type === 'gradient' && (
-              <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
+              <div className="flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-500">
                 <div className="grid grid-cols-4 gap-2.5">
                   {GRADIENT_PRESETS.map((preset) => (
                     <button
@@ -125,7 +125,7 @@ export default function Sidebar({
                   ))}
                 </div>
                 
-                <div className="space-y-4 pt-2">
+                <div className="space-y-3 pt-1">
                   <div className="flex justify-between items-end">
                     <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Flow Angle</label>
                     <span className="text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md">{background.gradientAngle}°</span>
@@ -142,14 +142,14 @@ export default function Sidebar({
         </section>
 
         {/* Styling Section */}
-        <section className="space-y-8">
+        <section className="flex flex-col gap-4 shrink-0">
           <div className="flex items-center gap-2 px-4">
             <Sparkles className="w-4 h-4 text-zinc-500" />
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Appearance</h3>
           </div>
 
-          <div className="px-4 space-y-10">
-            <div className="space-y-8">
+          <div className="px-4 flex flex-col gap-6">
+            <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between group cursor-pointer" 
                    onClick={() => setBorder({ ...border, enabled: !border.enabled })}>
                 <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2 group-hover:text-zinc-200 transition-colors">
@@ -162,8 +162,8 @@ export default function Sidebar({
               </div>
 
               {border.enabled && (
-                <div className="space-y-8 pt-2 animate-in slide-in-from-top-4 duration-500">
-                  <div className="space-y-4">
+                <div className="flex flex-col gap-4 pt-1 animate-in slide-in-from-top-4 duration-500">
+                  <div className="space-y-3">
                     <div className="flex justify-between items-end">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase">Rounding</label>
                       <span className="text-[10px] font-mono text-zinc-400">{border.radius}px</span>
@@ -174,7 +174,7 @@ export default function Sidebar({
                       className="w-full h-1 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-indigo-500"
                     />
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="flex justify-between items-end">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase">Weight</label>
                       <span className="text-[10px] font-mono text-zinc-400">{border.width}px</span>
@@ -189,7 +189,7 @@ export default function Sidebar({
               )}
             </div>
 
-            <div className="space-y-8">
+            <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between group cursor-pointer"
                    onClick={() => setShadow({ ...shadow, enabled: !shadow.enabled })}>
                 <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2 group-hover:text-zinc-200 transition-colors">
@@ -202,8 +202,8 @@ export default function Sidebar({
               </div>
 
               {shadow.enabled && (
-                <div className="space-y-8 pt-2 animate-in slide-in-from-top-4 duration-500">
-                  <div className="space-y-4">
+                <div className="flex flex-col gap-4 pt-1 animate-in slide-in-from-top-4 duration-500">
+                  <div className="space-y-3">
                     <div className="flex justify-between items-end">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase">Softness</label>
                       <span className="text-[10px] font-mono text-zinc-400">{shadow.blur}px</span>
@@ -214,7 +214,7 @@ export default function Sidebar({
                       className="w-full h-1 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-indigo-500"
                     />
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="flex justify-between items-end">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase">Density</label>
                       <span className="text-[10px] font-mono text-zinc-400">{shadow.opacity}%</span>
@@ -232,7 +232,7 @@ export default function Sidebar({
         </section>
       </div>
       
-      <div className="p-8 bg-zinc-900/50 border-t border-white/5">
+      <div className="p-6 bg-zinc-900/50 border-t border-white/5 shrink-0">
         <p className="text-[9px] font-black uppercase tracking-[0.3em] text-zinc-600 text-center">
           OpenSnap Engine v1.0
         </p>

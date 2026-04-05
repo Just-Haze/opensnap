@@ -26,6 +26,8 @@ export default function Settings({ onClose }: SettingsProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [isDirty, setIsDirty] = useState(false)
+  const [isRecordingHotkey, setIsRecordingHotkey] = useState(false)
+  const [recordedKeys, setRecordedKeys] = useState<Set<string>>(new Set())
 
   // Load settings on component mount
   useEffect(() => {
@@ -59,6 +61,7 @@ export default function Settings({ onClose }: SettingsProps) {
     
     try {
       await window.electronAPI?.saveSettings(settings)
+      await window.electronAPI?.updateTrayMenu(settings)
       setIsDirty(false)
       toast.success('Settings saved successfully')
     } catch (error) {
@@ -97,6 +100,87 @@ export default function Settings({ onClose }: SettingsProps) {
     }
   }
 
+  const startRecordingHotkey = () => {
+    setIsRecordingHotkey(true)
+    setRecordedKeys(new Set())
+  }
+
+  const stopRecordingHotkey = () => {
+    setIsRecordingHotkey(false)
+    
+    if (recordedKeys.size === 0) return
+    
+    // Build accelerator string
+    const modifiers: string[] = []
+    const keys: string[] = []
+    
+    const keyArray = Array.from(recordedKeys)
+    
+    keyArray.forEach(key => {
+      const lower = key.toLowerCase()
+      if (lower === 'control' || lower === 'ctrl') {
+        if (!modifiers.includes('CommandOrControl')) modifiers.push('CommandOrControl')
+      } else if (lower === 'meta' || lower === 'cmd' || lower === 'command') {
+        if (!modifiers.includes('CommandOrControl')) modifiers.push('CommandOrControl')
+      } else if (lower === 'alt' || lower === 'option') {
+        if (!modifiers.includes('Alt')) modifiers.push('Alt')
+      } else if (lower === 'shift') {
+        if (!modifiers.includes('Shift')) modifiers.push('Shift')
+      } else if (key.length === 1 || ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'].includes(key)) {
+        keys.push(key.toUpperCase())
+      }
+    })
+    
+    if (modifiers.length > 0 && keys.length > 0) {
+      const hotkey = [...modifiers, ...keys].join('+')
+      updateSettings({ captureHotkey: hotkey })
+      toast.success(`Hotkey set to: ${hotkey}`)
+    } else {
+      toast.error('Invalid hotkey combination. Use at least one modifier + one key.')
+    }
+    
+    setRecordedKeys(new Set())
+  }
+
+  const clearHotkey = () => {
+    updateSettings({ captureHotkey: 'CommandOrControl+Shift+S' })
+    setRecordedKeys(new Set())
+  }
+
+  useEffect(() => {
+    if (!isRecordingHotkey) return
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      
+      setRecordedKeys(prev => {
+        const newKeys = new Set(prev)
+        newKeys.add(e.key)
+        return newKeys
+      })
+    }
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keyup', handleKeyUp, true)
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('keyup', handleKeyUp, true)
+    }
+  }, [isRecordingHotkey])
+
+  const formatHotkeyDisplay = (hotkey: string) => {
+    return hotkey
+      .replace('CommandOrControl', 'Ctrl')
+      .replace('+', ' + ')
+  }
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-zinc-950">
@@ -114,7 +198,7 @@ export default function Settings({ onClose }: SettingsProps) {
   }
 
   return (
-    <div className="h-full bg-zinc-950 text-white overflow-hidden">
+    <div className="h-full bg-zinc-950 text-white flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
@@ -338,18 +422,51 @@ export default function Settings({ onClose }: SettingsProps) {
             Keyboard Shortcuts
           </h2>
           <div className="space-y-4">
-            <div className="flex items-center justify-between py-3 border-b border-white/5">
-              <div>
-                <div className="font-medium">Capture hotkey</div>
-                <div className="text-sm text-zinc-400">Global shortcut to open screenshot capture</div>
+            <div className="py-3 border-b border-white/5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="font-medium">Capture hotkey</div>
+                  <div className="text-sm text-zinc-400">Global shortcut to capture a screen region</div>
+                </div>
               </div>
-              <input
-                type="text"
-                value={settings.captureHotkey}
-                onChange={(e) => updateSettings({ captureHotkey: e.target.value })}
-                className="px-3 py-2 bg-zinc-800 border border-white/10 rounded-lg text-sm min-w-[200px] focus:outline-none focus:border-indigo-500"
-                placeholder="e.g., CommandOrControl+Shift+S"
-              />
+              <div className="flex items-center gap-3">
+                <div className="flex-1 px-4 py-3 bg-zinc-800 border border-white/10 rounded-lg font-mono text-sm min-h-[48px] flex items-center justify-center">
+                  {isRecordingHotkey ? (
+                    <span className="text-indigo-400 animate-pulse">
+                      {recordedKeys.size > 0 ? Array.from(recordedKeys).join(' + ') : 'Press keys...'}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-300">{formatHotkeyDisplay(settings.captureHotkey)}</span>
+                  )}
+                </div>
+                {isRecordingHotkey ? (
+                  <button
+                    onClick={stopRecordingHotkey}
+                    className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Save
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={startRecordingHotkey}
+                      className="px-4 py-3 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Record
+                    </button>
+                    <button
+                      onClick={clearHotkey}
+                      className="px-4 py-3 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm font-medium transition-colors"
+                      title="Reset to default"
+                    >
+                      Reset
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="text-xs text-zinc-500 mt-2">
+                Click "Record", then press your desired key combination. Use at least one modifier (Ctrl, Alt, Shift) and one key.
+              </p>
             </div>
           </div>
         </section>

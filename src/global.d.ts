@@ -2,9 +2,23 @@ declare global {
   interface Window {
     electronAPI?: {
       // Screenshot Capture
-      getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; icon?: string }>>
-      captureSource: (sourceId: string) => Promise<{ dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number } | null>
-      captureFullscreen: () => Promise<{ dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number } | null>
+      getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; icon?: string; displayId?: string }>>
+      captureRegion: () => Promise<boolean>
+      regionCaptureHide: () => Promise<boolean>
+      regionCaptureReady: (displayId: number) => Promise<boolean>
+      regionCaptureComplete: (payload: { dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number }) => Promise<{ success: boolean }>
+      regionCaptureCancel: () => Promise<boolean>
+      getRegionCaptureData: () => Promise<{ id: number; screenshot: string; width: number; height: number; scaleFactor: number; physicalWidth: number; physicalHeight: number } | null>
+      getDisplayInfo: (displayId: number) => Promise<{ id: number; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number }; size: { width: number; height: number } } | null>
+      getPrimaryDisplayInfo: () => Promise<{ id: number; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number }; size: { width: number; height: number } }>
+      getScreenSources: () => Promise<Array<{ id: string; name: string; displayId: string }>>
+      getWindowInfo: (sourceId: string) => Promise<{ id: string; name: string; width: number; height: number; scaleFactor: number } | null>
+      
+      // Window Controls (for custom title bar)
+      windowMinimize: () => Promise<void>
+      windowMaximize: () => Promise<void>
+      windowClose: () => Promise<void>
+      windowIsMaximized: () => Promise<boolean>
       
       // File Operations
       saveImage: (options: { dataUrl: string; filePath: string; format: string }) => Promise<boolean>
@@ -49,6 +63,7 @@ declare global {
         captureHotkey: string
         theme: 'light' | 'dark' | 'system'
       } | null>
+      updateTrayMenu: (settings: any) => Promise<boolean>
       
       // External Links
       openExternal: (url: string) => Promise<void>
@@ -56,7 +71,10 @@ declare global {
       // Event Listeners
       onSourcesAvailable?: (callback: (sources: Array<{ id: string; name: string; thumbnail: string; icon?: string }>) => void) => () => void
       onScreenshotCaptured?: (callback: (image: { dataUrl: string; width: number; height: number; logicalWidth?: number; logicalHeight?: number }) => void) => () => void
+      onRequestFullscreenCapture?: (callback: () => void) => () => void
+      onSettingsUpdated?: (callback: (settings: any) => void) => () => void
       onTakeScreenshotFromTray?: (callback: () => void) => () => void
+      onWindowMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void
     }
   }
 }

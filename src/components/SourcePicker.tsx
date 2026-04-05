@@ -42,7 +42,7 @@ export default function SourcePicker({ sources, loading, onCaptureSource, onRefr
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-          {sources.map((source, index) => (
+          {(sources || []).map((source, index) => (
             <button
               key={source.id}
               onClick={() => onCaptureSource(source.id)}

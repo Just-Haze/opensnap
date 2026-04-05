@@ -1,11 +1,13 @@
-import { Camera, Monitor, Keyboard, Sparkles, Settings } from 'lucide-react'
+import { Camera, Monitor, Keyboard, Sparkles, Settings, Crop } from 'lucide-react'
 
 interface HeaderProps {
   onCaptureFullscreen: () => void
+  onCaptureRegion: () => void
   loading: boolean
+  currentHotkey: string
 }
 
-export default function Header({ onCaptureFullscreen, loading }: HeaderProps) {
+export default function Header({ onCaptureFullscreen, onCaptureRegion, loading, currentHotkey }: HeaderProps) {
   const openSettings = () => {
     window.location.hash = 'settings'
   }
@@ -46,6 +48,14 @@ export default function Header({ onCaptureFullscreen, loading }: HeaderProps) {
 
         <div className="flex flex-wrap justify-center gap-6 mb-12 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-300">
           <button
+            onClick={onCaptureRegion}
+            disabled={loading}
+            className="px-10 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white disabled:opacity-50 font-bold text-lg rounded-2xl transition-all flex items-center gap-3 group shadow-2xl shadow-indigo-500/20 active:scale-95 hover:-translate-y-1"
+          >
+            <Crop className="w-6 h-6 group-hover:scale-110 transition-transform" />
+            Capture Region
+          </button>
+          <button
             onClick={onCaptureFullscreen}
             disabled={loading}
             className="px-10 py-4 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 font-bold text-lg rounded-2xl transition-all flex items-center gap-3 group shadow-2xl shadow-white/10 active:scale-95 hover:-translate-y-1"
@@ -57,7 +67,7 @@ export default function Header({ onCaptureFullscreen, loading }: HeaderProps) {
 
         <div className="flex items-center gap-3 px-6 py-3 bg-zinc-900/40 backdrop-blur-md border border-white/5 rounded-2xl text-zinc-500 text-sm animate-in fade-in slide-in-from-bottom-16 duration-1000 delay-500">
           <Keyboard className="w-4 h-4" />
-          <span>Global Shortcut: <kbd className="bg-zinc-800/80 px-2 py-1 rounded-lg text-zinc-300 font-mono text-xs border border-white/5">Ctrl+Shift+F</kbd></span>
+          <span>Global Shortcut: <kbd className="bg-zinc-800/80 px-2 py-1 rounded-lg text-zinc-300 font-mono text-xs border border-white/5">{currentHotkey}</kbd></span>
         </div>
       </div>
     </header>
