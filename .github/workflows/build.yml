@@ -1,0 +1,86 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Publish as draft release'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            artifact_name: Windows
+          - os: macos-latest
+            platform: mac
+            artifact_name: macOS
+          - os: ubuntu-latest
+            platform: linux
+            artifact_name: Linux
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.artifact_name }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            librm-dev \
+            libxss1 \
+            libgconf-2-4 \
+            libappindicator3-dev \
+            snapd \
+            rpm \
+            fakeroot
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (TypeScript + Vite)
+        run: npx tsc && npx vite build
+
+      - name: Package (${{ matrix.artifact_name }})
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Set to 'always' to publish on every tag push, or 'onTagOrDraft' for drafts
+          PUBLISH_MODE: ${{ github.event_name == 'push' && 'always' || 'never' }}
+        run: npx electron-builder --${{ matrix.platform }} --config electron-builder.config.js --publish ${{ github.event_name == 'push' && 'always' || 'never' }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenSnap-${{ matrix.artifact_name }}-${{ github.ref_name }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+          if-no-files-found: warn
+          retention-days: 30
