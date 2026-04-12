@@ -707,31 +707,61 @@ export default function App() {
     }
   }
 
+  // Helper function to check distance from a point to a line segment
+  const pointToSegmentDistance = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
+    const dx = bx - ax, dy = by - ay
+    const lenSq = dx * dx + dy * dy
+    if (lenSq === 0) return Math.hypot(px - ax, py - ay)
+    let t = ((px - ax) * dx + (py - ay) * dy) / lenSq
+    t = Math.max(0, Math.min(1, t))
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+  }
+
   // Helper function to check if point hits an annotation
   const getAnnotationAtPoint = (x: number, y: number): Annotation | null => {
+    const HIT_TOLERANCE = 8 // px in logical image space
     // Check in reverse order to prioritize top annotations
     for (let i = annotations.length - 1; i >= 0; i--) {
       const ann = annotations[i]
       
       if (ann.type === 'text' && ann.text) {
         const dimensions = getTextDimensions(ann.text, 16 + ann.size * 2)
-        const padding = 4 // Add some padding for easier clicking
+        const pad = HIT_TOLERANCE
         
-        if (x >= ann.x - padding && 
-            x <= ann.x + dimensions.width + padding && 
-            y >= ann.y - dimensions.height - padding && 
-            y <= ann.y + padding) {
+        if (x >= ann.x - pad && 
+            x <= ann.x + dimensions.width + pad && 
+            y >= ann.y - dimensions.height - pad && 
+            y <= ann.y + pad) {
           return ann
         }
       } else if (ann.endX !== undefined && ann.endY !== undefined) {
-        // For shapes, check if within bounds
-        const minX = Math.min(ann.x, ann.endX)
-        const maxX = Math.max(ann.x, ann.endX)
-        const minY = Math.min(ann.y, ann.endY)
-        const maxY = Math.max(ann.y, ann.endY)
-        
-        if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-          return ann
+        if (ann.type === 'arrow') {
+          // Hit test: distance from pointer to arrow line segment
+          const dist = pointToSegmentDistance(x, y, ann.x, ann.y, ann.endX, ann.endY)
+          if (dist <= HIT_TOLERANCE + ann.size * 2) return ann
+        } else if (ann.type === 'circle') {
+          // Hit test: distance from pointer to ellipse outline
+          const cx = (ann.x + ann.endX) / 2
+          const cy = (ann.y + ann.endY) / 2
+          const rx = Math.abs(ann.endX - ann.x) / 2
+          const ry = Math.abs(ann.endY - ann.y) / 2
+          if (rx > 0 && ry > 0) {
+            // Normalize point to unit ellipse
+            const nx = (x - cx) / rx
+            const ny = (y - cy) / ry
+            const distFromEllipse = Math.abs(Math.hypot(nx, ny) - 1) * Math.min(rx, ry)
+            if (distFromEllipse <= HIT_TOLERANCE + ann.size) return ann
+          }
+        } else {
+          // rect: check within bounding box with tolerance
+          const minX = Math.min(ann.x, ann.endX) - HIT_TOLERANCE
+          const maxX = Math.max(ann.x, ann.endX) + HIT_TOLERANCE
+          const minY = Math.min(ann.y, ann.endY) - HIT_TOLERANCE
+          const maxY = Math.max(ann.y, ann.endY) + HIT_TOLERANCE
+          
+          if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+            return ann
+          }
         }
       }
     }
@@ -1050,9 +1080,20 @@ export default function App() {
       setAnnotations([])
       setHistory([[]])
       setHistoryIndex(0)
-      setPan(null)
       setCropRect(null)
       setSelectedTool('select')
+
+      // Calculate auto-fit scale now that we know the cropped logical dimensions
+      const availableWidth = window.innerWidth - 320 - 150
+      const logicalW = width
+      if (logicalW > availableWidth) {
+        setScale(Math.max(10, Math.floor((availableWidth / logicalW) * 100)))
+      } else {
+        setScale(100)
+      }
+      // Reset pan last so the centering logic kicks in cleanly on the new scale
+      setPan(null)
+
       toast.success('Image cropped')
     }
     img.src = screenshot.dataUrl
@@ -1103,13 +1144,17 @@ export default function App() {
     }
   }
 
-  const handleCopy = (quiet = false) => {
+  const handleCopy = async (quiet = false) => {
     const canvas = canvasRef.current
     if (!canvas) return
     // Export at full resolution
     const dataUrl = canvas.toDataURL('image/png')
-    window.electronAPI?.copyToClipboard(dataUrl)
-    if (!quiet) toast.success('Copied to clipboard!')
+    await window.electronAPI?.copyToClipboard(dataUrl)
+    if (!quiet) {
+      toast.success('Copied to clipboard!')
+      // Hide the window after explicit copy — the image is safe in clipboard
+      window.electronAPI?.hideMainWindow()
+    }
   }
 
   const handleCaptureRegion = async () => {
@@ -1193,7 +1238,7 @@ export default function App() {
                 onMouseDown={handleMouseDown}
                 className={`block transition-shadow duration-500 ${
                   selectedTool === 'hand' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') :
-                  selectedTool === 'select' ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 
+                  selectedTool === 'select' ? (isDragging ? 'cursor-grabbing' : 'cursor-default') : 
                   'cursor-crosshair'
                 }`}
               />

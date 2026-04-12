@@ -22,6 +22,7 @@ interface RegionCaptureData {
 
 declare global {
   var regionCaptureData: RegionCaptureData | null
+  var allRegionCaptureData: Map<number, RegionCaptureData> | null
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -350,92 +351,117 @@ async function startRegionCapture() {
   regionCaptureActive = true
 
   try {
-    // Get the primary display
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width, height } = primaryDisplay.size
-    const scaleFactor = primaryDisplay.scaleFactor
+    const allDisplays = screen.getAllDisplays()
 
-    // Capture the screen first using desktopCapturer
+    // Capture screenshots for ALL displays
+    // Use the maximum physical size across all displays for the thumbnail request
+    const maxW = Math.max(...allDisplays.map(d => Math.round(d.size.width * d.scaleFactor)))
+    const maxH = Math.max(...allDisplays.map(d => Math.round(d.size.height * d.scaleFactor)))
+
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { 
-        width: Math.round(width * scaleFactor), 
-        height: Math.round(height * scaleFactor) 
-      }
+      thumbnailSize: { width: maxW, height: maxH }
     })
 
-    const primarySource = sources.find(s => s.display_id === String(primaryDisplay.id)) || sources[0]
-    
-    if (!primarySource) {
-      console.error('No screen source found')
+    if (sources.length === 0) {
+      console.error('No screen sources found')
       regionCaptureActive = false
       return
     }
 
-    // Get the screenshot as base64
-    const screenshot = primarySource.thumbnail.toDataURL()
-
     hideCaptureWindows()
 
-    // Create a single overlay window for region selection
-    const overlay = new BrowserWindow({
-      x: primaryDisplay.bounds.x,
-      y: primaryDisplay.bounds.y,
-      width: width,
-      height: height,
-      show: false,
-      frame: false,
-      transparent: true,
-      resizable: false,
-      movable: false,
-      fullscreen: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      focusable: true,
-      hasShadow: false,
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.cjs'),
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: false
+    // Build a map of display data keyed by display ID
+    const captureMap = new Map<number, RegionCaptureData>()
+
+    for (const display of allDisplays) {
+      const source = sources.find(s => s.display_id === String(display.id)) || sources[0]
+      const scaleFactor = display.scaleFactor
+      const { width, height } = display.size
+
+      // Re-capture at correct resolution for this display
+      const exactSources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: {
+          width: Math.round(width * scaleFactor),
+          height: Math.round(height * scaleFactor)
+        }
+      })
+      const exactSource = exactSources.find(s => s.display_id === String(display.id)) || source
+      const screenshot = exactSource.thumbnail.toDataURL()
+
+      const displayData: RegionCaptureData = {
+        id: display.id,
+        screenshot,
+        width,
+        height,
+        scaleFactor,
+        physicalWidth: Math.round(width * scaleFactor),
+        physicalHeight: Math.round(height * scaleFactor)
       }
-    })
-
-    overlay.setIgnoreMouseEvents(false)
-    overlay.setAlwaysOnTop(true, 'screen-saver')
-
-    // Store screenshot data to be retrieved by the overlay
-    const displayData: RegionCaptureData = {
-      id: primaryDisplay.id,
-      screenshot,
-      width,
-      height,
-      scaleFactor,
-      physicalWidth: Math.round(width * scaleFactor),
-      physicalHeight: Math.round(height * scaleFactor)
+      captureMap.set(display.id, displayData)
     }
 
-    // Store in a global variable that can be accessed via IPC
-    global.regionCaptureData = displayData
+    // Store for IPC retrieval
+    global.allRegionCaptureData = captureMap
+    // Keep legacy single-display field pointing to primary for compat
+    global.regionCaptureData = captureMap.get(screen.getPrimaryDisplay().id) || null
 
-    if (VITE_DEV_SERVER_URL) {
-      overlay.loadURL(`${VITE_DEV_SERVER_URL}#region-capture?display=${primaryDisplay.id}`)
-    } else {
-      const indexPath = resolveIndexPath()
-      overlay.loadFile(indexPath, { hash: `region-capture?display=${primaryDisplay.id}` })
+    // Create one overlay window per display
+    for (const display of allDisplays) {
+      const { width, height } = display.size
+
+      const overlay = new BrowserWindow({
+        x: display.bounds.x,
+        y: display.bounds.y,
+        width: width,
+        height: height,
+        show: false,
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        fullscreen: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        focusable: true,
+        hasShadow: false,
+        webPreferences: {
+          preload: path.join(__dirname, 'preload.cjs'),
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: false
+        }
+      })
+
+      overlay.setIgnoreMouseEvents(false)
+      overlay.setAlwaysOnTop(true, 'screen-saver')
+
+      if (VITE_DEV_SERVER_URL) {
+        overlay.loadURL(`${VITE_DEV_SERVER_URL}#region-capture?display=${display.id}`)
+      } else {
+        const indexPath = resolveIndexPath()
+        overlay.loadFile(indexPath, { hash: `region-capture?display=${display.id}` })
+      }
+
+      overlay.once('ready-to-show', () => {
+        overlay.show()
+        // Only focus the primary display overlay
+        if (display.id === screen.getPrimaryDisplay().id) {
+          overlay.focus()
+        }
+      })
+
+      overlay.on('closed', () => {
+        regionCaptureWindows.delete(display.id)
+        if (regionCaptureWindows.size === 0) {
+          global.regionCaptureData = null
+          global.allRegionCaptureData = null
+        }
+      })
+
+      regionCaptureWindows.set(display.id, overlay)
     }
-
-    overlay.once('ready-to-show', () => {
-      overlay.show()
-      overlay.focus()
-    })
-
-    overlay.on('closed', () => {
-      regionCaptureWindows.delete(primaryDisplay.id)
-      global.regionCaptureData = null
-    })
-
-    regionCaptureWindows.set(primaryDisplay.id, overlay)
   } catch (error) {
     console.error('Failed to start region capture:', error)
     regionCaptureActive = false
@@ -633,8 +659,11 @@ ipcMain.handle('region-capture-ready', async (_event, displayId) => {
   return true
 })
 
-// Get pre-captured screenshot data for region selection
-ipcMain.handle('get-region-capture-data', async () => {
+// Get pre-captured screenshot data for region selection (per-display)
+ipcMain.handle('get-region-capture-data', async (_event, displayId?: number) => {
+  if (displayId !== undefined && global.allRegionCaptureData) {
+    return global.allRegionCaptureData.get(Number(displayId)) || global.regionCaptureData || null
+  }
   return global.regionCaptureData || null
 })
 
@@ -652,10 +681,18 @@ ipcMain.handle('region-capture-complete', async (_, payload) => {
 
   regionCaptureActive = false
   global.regionCaptureData = null
+  global.allRegionCaptureData = null
   closeRegionCaptureWindows()
   restoreCaptureWindows()
 
   if (payload && payload.dataUrl) {
+    // Second clipboard safety net — renderer already copies on confirm,
+    // but this guarantees it if something went wrong on the renderer side.
+    try {
+      const img = nativeImage.createFromDataURL(payload.dataUrl)
+      clipboard.writeImage(img)
+    } catch (_) { /* best-effort */ }
+
     mainWindow?.webContents.send('screenshot-captured', payload)
     showMainWindow()
     return { success: true }
@@ -719,6 +756,10 @@ ipcMain.handle('copy-to-clipboard', async (_, dataUrl: string) => {
   } catch (error) {
     return { success: false, error: String(error) }
   }
+})
+
+ipcMain.handle('hide-main-window', () => {
+  mainWindow?.hide()
 })
 
 ipcMain.handle('show-save-dialog', async () => {

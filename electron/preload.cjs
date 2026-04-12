@@ -8,7 +8,7 @@ const electronAPI = {
   regionCaptureReady: (displayId) => ipcRenderer.invoke('region-capture-ready', displayId),
   regionCaptureComplete: (payload) => ipcRenderer.invoke('region-capture-complete', payload),
   regionCaptureCancel: () => ipcRenderer.invoke('region-capture-cancel'),
-  getRegionCaptureData: () => ipcRenderer.invoke('get-region-capture-data'),
+  getRegionCaptureData: (displayId) => ipcRenderer.invoke('get-region-capture-data', displayId),
   getDisplayInfo: (displayId) => ipcRenderer.invoke('get-display-info', displayId),
   getPrimaryDisplayInfo: () => ipcRenderer.invoke('get-primary-display-info'),
   getWindowInfo: (sourceId) => ipcRenderer.invoke('get-window-info', sourceId),
@@ -18,6 +18,7 @@ const electronAPI = {
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
   windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  hideMainWindow: () => ipcRenderer.invoke('hide-main-window'),
   
   // File Operations
   saveImage: (options) => ipcRenderer.invoke('save-image', options),

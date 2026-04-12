@@ -8,7 +8,7 @@ declare global {
       regionCaptureReady: (displayId: number) => Promise<boolean>
       regionCaptureComplete: (payload: { dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number }) => Promise<{ success: boolean }>
       regionCaptureCancel: () => Promise<boolean>
-      getRegionCaptureData: () => Promise<{ id: number; screenshot: string; width: number; height: number; scaleFactor: number; physicalWidth: number; physicalHeight: number } | null>
+      getRegionCaptureData: (displayId?: number) => Promise<{ id: number; screenshot: string; width: number; height: number; scaleFactor: number; physicalWidth: number; physicalHeight: number } | null>
       getDisplayInfo: (displayId: number) => Promise<{ id: number; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number }; size: { width: number; height: number } } | null>
       getPrimaryDisplayInfo: () => Promise<{ id: number; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number }; size: { width: number; height: number } }>
       getScreenSources: () => Promise<Array<{ id: string; name: string; displayId: string }>>
@@ -19,6 +19,7 @@ declare global {
       windowMaximize: () => Promise<void>
       windowClose: () => Promise<void>
       windowIsMaximized: () => Promise<boolean>
+      hideMainWindow: () => Promise<void>
       
       // File Operations
       saveImage: (options: { dataUrl: string; filePath: string; format: string }) => Promise<boolean>

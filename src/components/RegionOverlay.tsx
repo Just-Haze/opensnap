@@ -30,7 +30,7 @@ export default function RegionOverlay({ displayId }: RegionOverlayProps) {
 
     const loadCaptureData = async () => {
       try {
-        const data = await window.electronAPI?.getRegionCaptureData?.()
+        const data = await window.electronAPI?.getRegionCaptureData?.(Number(displayId))
         if (!mounted) return
         
         if (data) {
@@ -92,7 +92,7 @@ export default function RegionOverlay({ displayId }: RegionOverlayProps) {
     }
   }, [isSelecting, startPoint, endPoint])
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
     if (!captureData || !hasSelection) return
 
     const rect = {
@@ -113,7 +113,7 @@ export default function RegionOverlay({ displayId }: RegionOverlayProps) {
 
     // Crop the screenshot
     const img = new Image()
-    img.onload = () => {
+    img.onload = async () => {
       const canvas = document.createElement('canvas')
       canvas.width = physicalRect.width
       canvas.height = physicalRect.height
@@ -134,6 +134,11 @@ export default function RegionOverlay({ displayId }: RegionOverlayProps) {
       )
 
       const croppedDataUrl = canvas.toDataURL('image/png')
+
+      // Auto-copy to clipboard immediately before the annotation editor opens.
+      // This ensures the raw screenshot is always on the clipboard even if the
+      // user closes the annotation window without clicking Copy (like ShareX).
+      await window.electronAPI?.copyToClipboard(croppedDataUrl)
 
       window.electronAPI?.regionCaptureComplete({
         dataUrl: croppedDataUrl,
@@ -236,7 +241,7 @@ export default function RegionOverlay({ displayId }: RegionOverlayProps) {
         style={{ pointerEvents: isSelecting ? 'none' : 'auto' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="region-overlay-hint">
+        <div className={`region-overlay-hint transition-opacity duration-150 ${isSelecting ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           Drag to select • <kbd>ESC</kbd> cancel • <kbd>Enter</kbd> confirm
         </div>
         <div className="region-overlay-actions">
