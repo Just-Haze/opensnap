@@ -1,86 +1,102 @@
 # OpenSnap
 
-> **Status: Beta**
-> 
-> OpenSnap is still in active development. Expect bugs and breaking changes.
+> **Status: Beta** — OpenSnap is in active development. Expect occasional rough edges.
 
-OpenSnap is a free, open-source screenshot tool with beautiful backgrounds, annotations, and effects. Inspired by [OpenScreen](https://github.com/siddharthvaddem/openscreen).
+A free, open-source screenshot tool for Windows with beautiful backgrounds, annotations, and a clipboard-first workflow. Inspired by [OpenScreen](https://github.com/siddharthvaddem/openscreen).
 
 ![OpenSnap screenshot](assets/opensnap-screenshot.png)
 
+---
+
 ## Features
 
-- **Screen & Window Capture**: Capture your entire screen or specific windows
-- **Global Hotkeys**: 
-  - `Ctrl+Shift+S` - Open screenshot picker
-  - `Ctrl+Shift+F` - Capture full screen instantly
-  - `PrintScreen` - Capture screenshot
-- **Beautiful Backgrounds**:
-  - Transparent (for overlay use)
-  - Solid colors
-  - Gradient presets and custom gradients
-  - Custom wallpaper URLs
-- **Annotations**:
-  - Text
-  - Arrows
-  - Rectangles
-  - Ellipses
-  - Lines
-  - Freehand drawing
-- **Effects**:
-  - Customizable drop shadows
-  - Border with adjustable radius
-  - Adjustable padding
-- **Export Options**:
-  - PNG, JPG, WebP formats
-  - Copy directly to clipboard
+### Capture
+- **Region capture** — drag to select any area across all connected monitors
+- **Full screen capture** — one hotkey, instant grab
+- **Window capture** — pick any open window from the source picker
+- **Clipboard safety net** — screenshot is copied to clipboard the moment you confirm a capture, before the editor even opens. Close the window without clicking Copy and you still have it
+
+### Annotation
+- **Select tool** — click and drag annotations to reposition them; forgiving hit detection on arrows, circles, and rectangles
+- **Text, Arrows, Rectangles, Circles** — draw directly on your screenshot
+- **Undo / Redo** — full history with `Ctrl+Z` / `Ctrl+Y`
+- **Color picker** — quick palette in the toolbar
+
+### Beautify
+- **Backgrounds** — solid colors, gradients, or transparent
+- **Drop shadow** — adjustable blur, offset, and opacity
+- **Border** — color, width, and corner radius
+- **Padding** — add breathing room around the screenshot
+- **Zoom & Pan** — scroll to zoom, middle-click or Hand tool to pan
+
+### Export
+- **Copy to clipboard** — `Ctrl+C` or the Copy button; window closes automatically since the image is safe in clipboard
+- **Save as file** — PNG, JPG, or WebP via a save dialog
+- **Crop** — trim to any region before exporting
+
+### System
+- **Global hotkeys** — customizable in settings
+- **System tray** — stays out of your way until you need it
+- **Multi-monitor** — overlay appears on every display during region capture
+
+---
+
+## Default Hotkeys
+
+| Action | Shortcut |
+|--------|----------|
+| Region capture | `Ctrl+Shift+S` |
+| Full screen capture | `Ctrl+Shift+F` |
+| Undo | `Ctrl+Z` |
+| Redo | `Ctrl+Y` |
+| Confirm region / copy | `Enter` |
+| Cancel capture | `Esc` |
+
+All hotkeys are configurable in **Settings**.
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
 - Node.js 18+
-- npm or yarn
+- npm
 
-### Installation
+### Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/opensnap.git
+git clone https://github.com/Just-Haze/opensnap.git
 cd opensnap
-
-# Install dependencies
 npm install
-
-# Run in development mode
 npm run dev
 ```
 
-## Release
-
-Latest release: https://github.com/Just-Haze/opensnap/releases/latest
-
-### Building
+### Building a release
 
 ```bash
-# Build for current platform
-npm run build
-
-# Build for specific platforms
-npm run build:win    # Windows
+npm run build        # current platform
+npm run build:win    # Windows installer
 ```
+
+Download the latest pre-built release: **[Releases →](https://github.com/Just-Haze/opensnap/releases/latest)**
+
+---
 
 ## Usage
 
-1. Launch OpenSnap
-2. Select a screen or window to capture (or use `Ctrl+Shift+S`)
-3. Customize the background, shadow, and border in the sidebar
-4. Add annotations using the toolbar
-5. Export as PNG/JPG/WebP or copy to clipboard
+1. Launch OpenSnap (or trigger it via hotkey from the tray)
+2. Pick a source — region, full screen, or a specific window
+3. The screenshot is instantly on your clipboard as a fallback
+4. Tweak background, shadow, border, and padding in the sidebar
+5. Annotate with the toolbar — arrows, text, shapes
+6. Hit **Copy** or **Export** when you're done
+
+---
 
 ## License
 
-MIT License - feel free to use, modify, and distribute!
+MIT — free to use, modify, and distribute.
 
 ## Credits
 
