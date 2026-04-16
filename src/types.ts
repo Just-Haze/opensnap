@@ -27,6 +27,7 @@ export interface ShadowSettings {
   offsetX: number
   offsetY: number
   opacity: number
+  isShadowBackdrop?: boolean
 }
 
 export interface BorderSettings {
@@ -38,7 +39,7 @@ export interface BorderSettings {
 
 export interface Annotation {
   id: string
-  type: 'text' | 'arrow' | 'rect' | 'circle'
+  type: 'text' | 'arrow' | 'rect' | 'circle' | 'blur' | 'step'
   x: number
   y: number
   endX?: number
@@ -46,4 +47,5 @@ export interface Annotation {
   text?: string
   color: string
   size: number
+  stepNumber?: number
 }

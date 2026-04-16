@@ -119,9 +119,9 @@ export default function Settings({ onClose }: SettingsProps) {
     keyArray.forEach(key => {
       const lower = key.toLowerCase()
       if (lower === 'control' || lower === 'ctrl') {
-        if (!modifiers.includes('CommandOrControl')) modifiers.push('CommandOrControl')
+        if (!modifiers.includes('Control')) modifiers.push('Control')
       } else if (lower === 'meta' || lower === 'cmd' || lower === 'command') {
-        if (!modifiers.includes('CommandOrControl')) modifiers.push('CommandOrControl')
+        if (!modifiers.includes('Command')) modifiers.push('Command')
       } else if (lower === 'alt' || lower === 'option') {
         if (!modifiers.includes('Alt')) modifiers.push('Alt')
       } else if (lower === 'shift') {
@@ -131,19 +131,19 @@ export default function Settings({ onClose }: SettingsProps) {
       }
     })
     
-    if (modifiers.length > 0 && keys.length > 0) {
+    if (keys.length > 0) {
       const hotkey = [...modifiers, ...keys].join('+')
       updateSettings({ captureHotkey: hotkey })
-      toast.success(`Hotkey set to: ${hotkey}`)
+      toast.success(`Hotkey set to: ${formatHotkeyDisplay(hotkey)}`)
     } else {
-      toast.error('Invalid hotkey combination. Use at least one modifier + one key.')
+      toast.error('Invalid hotkey. Press at least one key.')
     }
     
     setRecordedKeys(new Set())
   }
 
   const clearHotkey = () => {
-    updateSettings({ captureHotkey: 'CommandOrControl+Shift+S' })
+    updateSettings({ captureHotkey: 'Command+Shift+S' })
     setRecordedKeys(new Set())
   }
 
@@ -176,8 +176,11 @@ export default function Settings({ onClose }: SettingsProps) {
   }, [isRecordingHotkey])
 
   const formatHotkeyDisplay = (hotkey: string) => {
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
     return hotkey
       .replace('CommandOrControl', 'Ctrl')
+      .replace('Command', isMac ? 'Cmd' : 'Win')
+      .replace('Control', 'Ctrl')
       .replace('+', ' + ')
   }
 
@@ -465,7 +468,7 @@ export default function Settings({ onClose }: SettingsProps) {
                 )}
               </div>
               <p className="text-xs text-zinc-500 mt-2">
-                Click "Record", then press your desired key combination. Use at least one modifier (Ctrl, Alt, Shift) and one key.
+                Click "Record", then press your desired key combination. You can use modifiers (Ctrl, Alt, Shift, Win/Cmd) or just a single key.
               </p>
             </div>
           </div>

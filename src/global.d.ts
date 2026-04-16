@@ -6,7 +6,7 @@ declare global {
       captureRegion: () => Promise<boolean>
       regionCaptureHide: () => Promise<boolean>
       regionCaptureReady: (displayId: number) => Promise<boolean>
-      regionCaptureComplete: (payload: { dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number }) => Promise<{ success: boolean }>
+      regionCaptureComplete: (payload: { dataUrl: string; width: number; height: number; logicalWidth: number; logicalHeight: number; screenX?: number; screenY?: number }) => Promise<{ success: boolean }>
       regionCaptureCancel: () => Promise<boolean>
       getRegionCaptureData: (displayId?: number) => Promise<{ id: number; screenshot: string; width: number; height: number; scaleFactor: number; physicalWidth: number; physicalHeight: number } | null>
       getDisplayInfo: (displayId: number) => Promise<{ id: number; scaleFactor: number; bounds: { x: number; y: number; width: number; height: number }; size: { width: number; height: number } } | null>
@@ -23,9 +23,11 @@ declare global {
       
       // File Operations
       saveImage: (options: { dataUrl: string; filePath: string; format: string }) => Promise<boolean>
+      saveImageBuffer: (buffer: ArrayBuffer, filePath: string) => Promise<{ success: boolean; path?: string }>
       copyToClipboard: (dataUrl: string) => Promise<void>
       showSaveDialog: () => Promise<{ filePath?: string; format?: string } | null>
       showOpenDialog: (options: { properties: string[]; title: string }) => Promise<{ canceled: boolean; filePaths: string[] } | null>
+      openExternal: (url: string) => Promise<void>
       
       // Settings Management
       getSettings: () => Promise<{
@@ -66,8 +68,10 @@ declare global {
       } | null>
       updateTrayMenu: (settings: any) => Promise<boolean>
       
-      // External Links
-      openExternal: (url: string) => Promise<void>
+      // New Advanced Features
+      pinToScreen: (dataUrl: string) => Promise<boolean>
+      saveHistory: (dataUrl: string) => Promise<boolean>
+      getHistory: () => Promise<string[]>
       
       // Event Listeners
       onSourcesAvailable?: (callback: (sources: Array<{ id: string; name: string; thumbnail: string; icon?: string }>) => void) => () => void
@@ -76,6 +80,7 @@ declare global {
       onSettingsUpdated?: (callback: (settings: any) => void) => () => void
       onTakeScreenshotFromTray?: (callback: () => void) => () => void
       onWindowMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void
+      onShortcutRegistrationFailed?: (callback: (failures: string[]) => void) => () => void
     }
   }
 }

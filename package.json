@@ -1,7 +1,7 @@
 {
   "name": "opensnap",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.5.0",
   "description": "Open-source screenshot tool with beautiful backgrounds, annotations, and effects",
   "author": {
     "name": "Just-Haze",
@@ -36,17 +36,16 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-rnd": "^10.5.2",
-    "react-router-dom": "^7.13.2",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
+    "tesseract.js": "^7.0.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
-    "@types/react-router-dom": "^5.3.3",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.21",

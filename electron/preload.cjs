@@ -22,6 +22,8 @@ const electronAPI = {
   
   // File Operations
   saveImage: (options) => ipcRenderer.invoke('save-image', options),
+  // Zero-copy path: sends raw Uint8Array instead of base64 dataUrl to avoid 33% size inflation
+  saveImageBuffer: (data, filePath) => ipcRenderer.invoke('save-image-buffer', { data: new Uint8Array(data), filePath }),
   copyToClipboard: (dataUrl) => ipcRenderer.invoke('copy-to-clipboard', dataUrl),
   showSaveDialog: () => ipcRenderer.invoke('show-save-dialog'),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
@@ -35,6 +37,11 @@ const electronAPI = {
   // Capture helpers
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   captureSourceFrame: (sourceId) => ipcRenderer.invoke('capture-source-frame', sourceId),
+  
+  // Advanced Features
+  pinToScreen: (dataUrl) => ipcRenderer.invoke('pin-to-screen', dataUrl),
+  getHistory: () => ipcRenderer.invoke('get-history'),
+  saveHistory: (item) => ipcRenderer.invoke('save-history', item),
   
   // External Links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
@@ -74,6 +81,12 @@ const electronAPI = {
     const handler = (_event, isMaximized) => callback(isMaximized)
     ipcRenderer.on('window-maximized-change', handler)
     return () => ipcRenderer.removeListener('window-maximized-change', handler)
+  },
+
+  onShortcutRegistrationFailed: (callback) => {
+    const handler = (_event, failures) => callback(failures)
+    ipcRenderer.on('shortcut-registration-failed', handler)
+    return () => ipcRenderer.removeListener('shortcut-registration-failed', handler)
   }
 }
 
