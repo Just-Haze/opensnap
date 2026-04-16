@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Minus, Square, X, Copy, Settings, Camera } from 'lucide-react'
+import { Minus, Square, X, Copy } from 'lucide-react'
 
 interface TitleBarProps {
   onOpenSettings?: () => void
   onCaptureRegion?: () => void
 }
 
-export default function TitleBar({ onOpenSettings, onCaptureRegion }: TitleBarProps) {
+export default function TitleBar({ onCaptureRegion }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
@@ -38,10 +38,8 @@ export default function TitleBar({ onOpenSettings, onCaptureRegion }: TitleBarPr
       {/* Left section - App branding & drag region */}
       <div className="flex items-center h-full flex-1 draggable">
         <div className="flex items-center gap-2.5 px-4 h-full">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Camera className="w-3 h-3 text-white" />
-          </div>
-          <span className="text-sm font-bold text-zinc-100 tracking-tight">OpenSnap</span>
+          <img src="/icon.svg" className="w-5 h-5 object-contain" alt="OpenSnap Logo" />
+          <span className="text-sm font-bold text-white tracking-tight">OpenSnap</span>
         </div>
       </div>
 
@@ -57,15 +55,7 @@ export default function TitleBar({ onOpenSettings, onCaptureRegion }: TitleBarPr
             <span>Capture</span>
           </button>
         )}
-        {onOpenSettings && (
-          <button
-            onClick={onOpenSettings}
-            className="h-7 px-2.5 flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100 hover:bg-white/5 rounded-md transition-colors"
-            title="Settings"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
+        {/* Settings button removed as requested */}
       </div>
 
       {/* Right section - Window controls */}

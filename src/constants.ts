@@ -41,7 +41,8 @@ export const DEFAULT_SHADOW: ShadowSettings = {
   blur: 40,
   offsetX: 0,
   offsetY: 20,
-  opacity: 30
+  opacity: 30,
+  isShadowBackdrop: false
 }
 
 export const DEFAULT_BORDER: BorderSettings = {

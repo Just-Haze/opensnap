@@ -1,4 +1,34 @@
+import { useRef, useCallback, useEffect, useState } from 'react'
 import { STORAGE_KEY } from './constants'
+
+export function useWindowSize() {
+  const [windowSize, setWindowSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  });
+
+  useEffect(() => {
+    let raf: number;
+    function handleResize() {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setWindowSize({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+      });
+    }
+
+    window.addEventListener("resize", handleResize);
+    handleResize();
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return windowSize;
+}
 
 export function loadSettings() {
   try {
@@ -19,6 +49,34 @@ export function saveSettings(settings: any) {
   } catch (e) {
     // Failed to save settings, silently handle
   }
+}
+
+export function useDebouncedCallback<T extends (...args: any[]) => any>(
+  callback: T,
+  delay: number
+): T {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [])
+
+  return useCallback(
+    (...args: Parameters<T>) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+
+      timeoutRef.current = setTimeout(() => {
+        callback(...args)
+      }, delay)
+    },
+    [callback, delay]
+  ) as T
 }
 
 export const drawArrow = (ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, size: number) => {

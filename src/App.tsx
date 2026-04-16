@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import './index.css'
+// Tesseract is imported lazily inside handleExtractText to avoid loading
+// a ~15 MB WASM binary at startup when it may never be used.
 
 // Types
 import { 
@@ -14,7 +16,7 @@ import {
 } from './constants'
 
 // Utils
-import { loadSettings, saveSettings, drawArrow } from './utils'
+import { loadSettings, saveSettings, drawArrow, useWindowSize } from './utils'
 
 // Components
 import Header from './components/Header'
@@ -25,8 +27,22 @@ import Settings from './components/Settings'
 import RegionOverlay from './components/RegionOverlay'
 import TitleBar from './components/TitleBar'
 import { Toaster, toast } from 'sonner'
+import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 
 export default function App() {
+  const { width } = useWindowSize();
+  const isSmallScreen = width < 1100;
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Sync sidebar open state with screen size changes
+  useEffect(() => {
+    if (isSmallScreen) {
+      setSidebarOpen(false);
+    } else {
+      setSidebarOpen(true);
+    }
+  }, [isSmallScreen]);
+
   // Check URL hash for different views
   const [currentView, setCurrentView] = useState<'app' | 'settings' | 'region-capture'>(() => {
     const hash = window.location.hash
@@ -49,11 +65,19 @@ export default function App() {
         setAppSettings(settings)
       }
     }
+    const fetchHistory = async () => {
+      const history = await window.electronAPI?.getHistory()
+      if (history) {
+        setHistoryScreenshots(history)
+      }
+    }
     loadAppSettings()
+    fetchHistory()
   }, [])
   
   // State
   const [sources, setSources] = useState<ScreenSource[]>([])
+  const [historyScreenshots, setHistoryScreenshots] = useState<string[]>([])
   const [screenshot, setScreenshot] = useState<Screenshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState<'picker' | 'editor'>('picker')
@@ -78,7 +102,7 @@ export default function App() {
   
   // Annotations
   const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [selectedTool, setSelectedTool] = useState<'select' | 'text' | 'arrow' | 'rect' | 'circle' | 'crop' | 'hand'>('select')
+  const [selectedTool, setSelectedTool] = useState<'select' | 'text' | 'arrow' | 'rect' | 'circle' | 'crop' | 'hand' | 'blur' | 'step'>('select')
   const [annotationColor, setAnnotationColor] = useState(savedSettings?.annotationColor ?? DEFAULT_ANNOTATION_COLOR)
   
   // History for Undo/Redo
@@ -99,7 +123,9 @@ export default function App() {
 
   // Panning state
   const [isPanning, setIsPanning] = useState(false)
-  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 })
+  // Using a ref (not state) for lastMousePos so mouse-move events during pan
+  // do not trigger a React re-render on every pointer event (~144/sec on high-refresh displays).
+  const lastMousePosRef = useRef({ x: 0, y: 0 })
 
   // Cropping state
   const [isCropping, setIsCropping] = useState(false)
@@ -133,32 +159,9 @@ export default function App() {
     }
   }, [history, historyIndex])
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && view === 'editor') {
-        handleCopy(true) // Silent auto-copy on escape
-        setView('picker')
-        return
-      }
-      if ((e.ctrlKey || e.metaKey) && !showTextInput) {
-        if (e.key.toLowerCase() === 'z') {
-          e.preventDefault()
-          if (e.shiftKey) handleRedo()
-          else handleUndo()
-        } else if (e.key.toLowerCase() === 'y') {
-          e.preventDefault()
-          handleRedo()
-        }
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleUndo, handleRedo, showTextInput])
-
   // ============ FUNCTIONS ============
 
-  const loadSources = async () => {
+  const loadSources = useCallback(async () => {
     setLoading(true)
     try {
       const availableSources = await window.electronAPI?.getSources()
@@ -167,15 +170,20 @@ export default function App() {
       } else {
         toast.error('No windows found. Try refreshing.')
       }
+
+      const history = await window.electronAPI?.getHistory()
+      if (history) {
+        setHistoryScreenshots(history)
+      }
     } catch (error) {
       console.error('Failed to load sources:', error)
       toast.error('Failed to load windows')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const handleCaptureSource = async (sourceId: string) => {
+  const handleCaptureSource = useCallback(async (sourceId: string) => {
     setLoading(true)
     try {
       const displayInfo = await window.electronAPI?.getPrimaryDisplayInfo()
@@ -200,58 +208,61 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
       const video = document.createElement('video')
       video.srcObject = stream
-      
-      await new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-          video.play()
-          resolve(true)
-        }
-      })
+      try {
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            video.play()
+            resolve(true)
+          }
+        })
 
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')
-      
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const dataUrl = canvas.toDataURL('image/png')
-        
-        const captured = {
-          dataUrl,
-          width: canvas.width,
-          height: canvas.height,
-          logicalWidth: width,
-          logicalHeight: height
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        const ctx = canvas.getContext('2d')
+
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          const dataUrl = canvas.toDataURL('image/png')
+
+          const captured = {
+            dataUrl,
+            width: canvas.width,
+            height: canvas.height,
+            logicalWidth: width,
+            logicalHeight: height
+          }
+
+          setScreenshot(captured)
+          setView('editor')
+          setAnnotations([])
+          setHistory([[]])
+          setHistoryIndex(0)
+          setPan(null)
+
+          const dpr = window.devicePixelRatio || 1
+          const availableWidth = window.innerWidth - 320 - 150
+          const logicalWidth = captured.logicalWidth || (captured.width / dpr)
+          if (logicalWidth > availableWidth) {
+            setScale(Math.max(10, Math.floor((availableWidth / logicalWidth) * 100)))
+          } else {
+            setScale(100)
+          }
         }
-        
-        setScreenshot(captured)
-        setView('editor')
-        setAnnotations([])
-        setHistory([[]])
-        setHistoryIndex(0)
-        setPan(null)
-        
-        const dpr = window.devicePixelRatio || 1
-        const availableWidth = window.innerWidth - 320 - 150
-        const logicalWidth = captured.logicalWidth || (captured.width / dpr)
-        if (logicalWidth > availableWidth) {
-          setScale(Math.max(10, Math.floor((availableWidth / logicalWidth) * 100)))
-        } else {
-          setScale(100)
-        }
+      } finally {
+        // Always stop the stream — even if canvas context creation fails —
+        // so the OS screen-recording indicator is dismissed.
+        stream.getTracks().forEach(track => track.stop())
       }
-      
-      stream.getTracks().forEach(track => track.stop())
     } catch (error) {
       console.error('Capture error:', error)
       toast.error('Failed to capture screen')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const handleCaptureFullscreen = async () => {
+  const handleCaptureFullscreen = useCallback(async () => {
     setLoading(true)
     let stream: MediaStream | null = null
     
@@ -356,140 +367,165 @@ export default function App() {
       }
       setLoading(false)
     }
-  }
+  }, [])
+
+  // Performance Refs
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const backgroundBufferRef = useRef<HTMLCanvasElement | null>(null)
+  const isBackgroundDirty = useRef<boolean>(true)
+  const renderRequested = useRef<boolean>(false)
+
+  // Mark background as dirty when appearance settings change
+  useEffect(() => {
+    isBackgroundDirty.current = true
+  }, [screenshot, background, shadow, border, padding, scale, isImageLoaded])
 
   const renderCanvas = useCallback(() => {
-    const canvas = canvasRef.current
-    const img = imageRef.current
-    if (!canvas || !screenshot || !img) return
+    if (renderRequested.current) return
+    renderRequested.current = true
 
-    const ctx = canvas.getContext('2d', { 
-      willReadFrequently: true
-    })
-    if (!ctx) return
+    requestAnimationFrame(() => {
+      renderRequested.current = false
+      const canvas = canvasRef.current
+      const img = imageRef.current
+      if (!canvas || !screenshot || !img) return
 
-    const dpr = window.devicePixelRatio || 1
-    
-    // Use logical dimensions from the screenshot object if available.
-    const logicalWidth = screenshot.logicalWidth || img.width
-    const logicalHeight = screenshot.logicalHeight || img.height
-    
-    const scaleFactor = scale / 100
-    const imgWidth = logicalWidth * scaleFactor
-    const imgHeight = logicalHeight * scaleFactor
-    const totalPadding = padding * 2
-    const canvasWidth = imgWidth + totalPadding
-    const canvasHeight = imgHeight + totalPadding
+      const ctx = canvas.getContext('2d', { alpha: true })
+      if (!ctx) return
 
-    // Set actual pixel dimensions for the canvas element (sharpness)
-    canvas.width = canvasWidth * dpr
-    canvas.height = canvasHeight * dpr
-    
-    // Set display size in logical pixels
-    canvas.style.width = `${canvasWidth}px`
-    canvas.style.height = `${canvasHeight}px`
-
-    // Scale context so we can draw using logical coordinates
-    ctx.scale(dpr, dpr)
-    
-    // Enable high-quality rendering
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = 'high'
-    
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight)
-
-    // Draw background
-    drawBackground(ctx, canvasWidth, canvasHeight)
-
-    const x = padding, y = padding, w = imgWidth, h = imgHeight
-    // Limit border radius to a maximum of half the smaller dimension
-    const maxRadius = Math.min(w, h) / 2
-    const r = Math.min(border.radius, maxRadius)
-    
-    const drawRoundedRect = () => {
-      ctx.beginPath()
-      if (typeof ctx.roundRect === 'function') {
-        ctx.roundRect(x, y, w, h, r)
-      } else {
-        drawRoundedRectOnCtx(ctx, x, y, w, h, r)
-      }
-      ctx.closePath()
-    }
-
-    if (shadow.enabled) {
-      // For shadows, we draw the image onto an offscreen canvas first
-      const offscreen = document.createElement('canvas')
-      offscreen.width = canvasWidth * dpr
-      offscreen.height = canvasHeight * dpr
-      const offCtx = offscreen.getContext('2d')
-      if (!offCtx) return
-
-      offCtx.scale(dpr, dpr)
-      offCtx.save()
-      
-      // Create rounded clipping path for the image
-      offCtx.beginPath()
-      if (typeof offCtx.roundRect === 'function') {
-        offCtx.roundRect(x, y, w, h, r)
-      } else {
-        drawRoundedRectOnCtx(offCtx, x, y, w, h, r)
-      }
-      offCtx.clip()
-      offCtx.drawImage(img, padding, padding, imgWidth, imgHeight)
-      offCtx.restore()
-      
-      // Draw shadow by rendering the offscreen canvas with shadow effects
-      ctx.save()
-      ctx.shadowColor = `rgba(0, 0, 0, ${shadow.opacity / 100})`
-      ctx.shadowBlur = shadow.blur
-      ctx.shadowOffsetX = shadow.offsetX
-      ctx.shadowOffsetY = shadow.offsetY
-      ctx.drawImage(offscreen, 0, 0, canvasWidth, canvasHeight)
-      ctx.restore()
-    } else {
-      ctx.save()
-      drawRoundedRect()
-      ctx.clip()
-      ctx.drawImage(img, padding, padding, imgWidth, imgHeight)
-      ctx.restore()
-    }
-
-    if (border.enabled && border.width > 0) {
-      drawRoundedRect()
-      ctx.strokeStyle = border.color
-      ctx.lineWidth = border.width
-      ctx.stroke()
-    }
-
-    // Draw all annotations
-    const allAnnotations = currentAnnotation ? [...annotations, currentAnnotation] : annotations
-    drawAnnotations(ctx, padding, allAnnotations)
-
-    // Draw crop rectangle
-    if (cropRect) {
+      const dpr = window.devicePixelRatio || 1
       const scaleFactor = scale / 100
-      const x = Math.min(cropRect.x, cropRect.endX) * scaleFactor + padding
-      const y = Math.min(cropRect.y, cropRect.endY) * scaleFactor + padding
-      const w = Math.abs(cropRect.endX - cropRect.x) * scaleFactor
-      const h = Math.abs(cropRect.endY - cropRect.y) * scaleFactor
       
-      const cropRadius = Math.min(border.radius * scaleFactor, Math.min(w, h) / 2)
+      const logicalWidth = screenshot.logicalWidth || img.width
+      const logicalHeight = screenshot.logicalHeight || img.height
+      const imgWidth = logicalWidth * scaleFactor
+      const imgHeight = logicalHeight * scaleFactor
+      
+      // Shadow Backdrop Style: Massive blur requires massive padding
+      const effectivePadding = shadow.isShadowBackdrop ? Math.max(padding, 80) : padding
+      
+      const totalPadding = effectivePadding * 2
+      const canvasWidth = imgWidth + totalPadding
+      const canvasHeight = imgHeight + totalPadding
 
-      ctx.strokeStyle = '#4f46e5'
-      ctx.lineWidth = 2
-      ctx.setLineDash([5, 5])
-      ctx.beginPath()
-      if (typeof ctx.roundRect === 'function') {
-        ctx.roundRect(x, y, w, h, cropRadius)
-      } else {
-        drawRoundedRectOnCtx(ctx, x, y, w, h, cropRadius)
+      // Ensure canvas size is correct
+      if (canvas.width !== canvasWidth * dpr || canvas.height !== canvasHeight * dpr) {
+        canvas.width = canvasWidth * dpr
+        canvas.height = canvasHeight * dpr
+        canvas.style.width = `${canvasWidth}px`
+        canvas.style.height = `${canvasHeight}px`
+        isBackgroundDirty.current = true
       }
-      ctx.stroke()
+
+      // 1. Draw Background & Image to Buffer if Dirty
+      if (isBackgroundDirty.current || !backgroundBufferRef.current) {
+        if (!backgroundBufferRef.current) {
+          backgroundBufferRef.current = document.createElement('canvas')
+        }
+        const bCanvas = backgroundBufferRef.current
+        bCanvas.width = canvas.width
+        bCanvas.height = canvas.height
+        const bCtx = bCanvas.getContext('2d')
+        if (bCtx) {
+          bCtx.scale(dpr, dpr)
+          bCtx.imageSmoothingEnabled = true
+          bCtx.imageSmoothingQuality = 'high'
+          
+          // Draw actual background
+          // In Shadow Backdrop mode, we typically want transparent background to see the shadow properly
+          if (shadow.isShadowBackdrop) {
+            bCtx.clearRect(0, 0, canvasWidth, canvasHeight)
+          } else {
+            drawBackground(bCtx, canvasWidth, canvasHeight)
+          }
+
+          const x = effectivePadding, y = effectivePadding, w = imgWidth, h = imgHeight
+          const r = Math.min(border.radius, Math.min(w, h) / 2)
+
+          if (shadow.enabled) {
+            if (!offscreenCanvasRef.current) offscreenCanvasRef.current = document.createElement('canvas')
+            const oCanvas = offscreenCanvasRef.current
+            oCanvas.width = bCanvas.width
+            oCanvas.height = bCanvas.height
+            const oCtx = oCanvas.getContext('2d')
+            if (oCtx) {
+              oCtx.scale(dpr, dpr)
+              oCtx.save()
+              oCtx.beginPath()
+              if (typeof oCtx.roundRect === 'function') oCtx.roundRect(x, y, w, h, r)
+              else drawRoundedRectOnCtx(oCtx, x, y, w, h, r)
+              oCtx.clip()
+              oCtx.drawImage(img, effectivePadding, effectivePadding, imgWidth, imgHeight)
+              oCtx.restore()
+
+              bCtx.save()
+              if (shadow.isShadowBackdrop) {
+                // macOS specific soft large shadow
+                bCtx.shadowColor = `rgba(0, 0, 0, 0.45)`
+                bCtx.shadowBlur = 60
+                bCtx.shadowOffsetX = 0
+                bCtx.shadowOffsetY = 30
+              } else {
+                bCtx.shadowColor = `rgba(0, 0, 0, ${shadow.opacity / 100})`
+                bCtx.shadowBlur = shadow.blur
+                bCtx.shadowOffsetX = shadow.offsetX
+                bCtx.shadowOffsetY = shadow.offsetY
+              }
+              bCtx.drawImage(oCanvas, 0, 0, canvasWidth, canvasHeight)
+              bCtx.restore()
+            }
+          } else {
+            bCtx.save()
+            bCtx.beginPath()
+            if (typeof bCtx.roundRect === 'function') bCtx.roundRect(x, y, w, h, r)
+            else drawRoundedRectOnCtx(bCtx, x, y, w, h, r)
+            bCtx.clip()
+            bCtx.drawImage(img, effectivePadding, effectivePadding, imgWidth, imgHeight)
+            bCtx.restore()
+          }
+
+          if (border.enabled && border.width > 0) {
+            bCtx.beginPath()
+            if (typeof bCtx.roundRect === 'function') bCtx.roundRect(x, y, w, h, r)
+            else drawRoundedRectOnCtx(bCtx, x, y, w, h, r)
+            bCtx.strokeStyle = border.color
+            bCtx.lineWidth = border.width
+            bCtx.stroke()
+          }
+        }
+        isBackgroundDirty.current = false
+      }
+
+      // 2. Composite Buffer and Draw Annotations
+      ctx.clearRect(0, 0, canvasWidth * dpr, canvasHeight * dpr)
+      if (backgroundBufferRef.current) {
+        ctx.drawImage(backgroundBufferRef.current, 0, 0)
+      }
       
-      ctx.fillStyle = 'rgba(79, 70, 229, 0.1)'
-      ctx.fill()
-      ctx.setLineDash([])
-    }
+      ctx.save()
+      ctx.scale(dpr, dpr)
+      const allAnnotations = currentAnnotation ? [...annotations, currentAnnotation] : annotations
+      drawAnnotations(ctx, effectivePadding, allAnnotations)
+
+      if (cropRect) {
+        const x = Math.min(cropRect.x, cropRect.endX) * scaleFactor + effectivePadding
+        const y = Math.min(cropRect.y, cropRect.endY) * scaleFactor + effectivePadding
+        const w = Math.abs(cropRect.endX - cropRect.x) * scaleFactor
+        const h = Math.abs(cropRect.endY - cropRect.y) * scaleFactor
+        const cropRadius = Math.min(border.radius * scaleFactor, Math.min(w, h) / 2)
+        ctx.strokeStyle = '#4f46e5'
+        ctx.lineWidth = 2
+        ctx.setLineDash([5, 5])
+        ctx.beginPath()
+        if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, cropRadius)
+        else drawRoundedRectOnCtx(ctx, x, y, w, h, cropRadius)
+        ctx.stroke()
+        ctx.fillStyle = 'rgba(79, 70, 229, 0.1)'
+        ctx.fill()
+        ctx.setLineDash([])
+      }
+      ctx.restore()
+    })
   }, [screenshot, background, shadow, border, padding, scale, annotations, currentAnnotation, cropRect, isImageLoaded])
 
   // ============ EFFECTS ============
@@ -511,7 +547,22 @@ export default function App() {
       else setCurrentView('app')
     }
     
+    // Optimized resize handler
+    let resizeTimeout: ReturnType<typeof setTimeout>
+    const handleResize = () => {
+      clearTimeout(resizeTimeout)
+      resizeTimeout = setTimeout(() => {
+        if (view === 'editor' && screenshot) {
+          // Trigger a re-calculation of center position if not panned
+          if (!pan) {
+            renderCanvas()
+          }
+        }
+      }, 100)
+    }
+    
     window.addEventListener('hashchange', handleHashChange)
+    window.addEventListener('resize', handleResize)
     
     // Listen for events from main process
     const unsubSources = window.electronAPI?.onSourcesAvailable?.((newSources: ScreenSource[]) => {
@@ -605,6 +656,17 @@ export default function App() {
   const drawBackground = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     if (background.type === 'transparent') return
     
+    const r = Math.min(border.radius, Math.min(width, height) / 2)
+    
+    ctx.save()
+    ctx.beginPath()
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(0, 0, width, height, r)
+    } else {
+      drawRoundedRectOnCtx(ctx, 0, 0, width, height, r)
+    }
+    ctx.clip()
+
     if (background.type === 'solid') {
       ctx.fillStyle = background.color
       ctx.fillRect(0, 0, width, height)
@@ -620,6 +682,7 @@ export default function App() {
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, width, height)
     }
+    ctx.restore()
   }
 
   const drawAnnotations = (ctx: CanvasRenderingContext2D, offset: number, anns: Annotation[]) => {
@@ -689,21 +752,77 @@ export default function App() {
             ctx.stroke()
           }
           break
+        case 'blur':
+          if (drawEndX !== undefined && drawEndY !== undefined && imageRef.current) {
+            const x = Math.min(drawX, drawEndX)
+            const y = Math.min(drawY, drawEndY)
+            const w = Math.abs(drawEndX - drawX)
+            const h = Math.abs(drawEndY - drawY)
+            
+            ctx.save()
+            // Create a clipping region for the blur
+            ctx.beginPath()
+            ctx.rect(x, y, w, h)
+            ctx.clip()
+            
+            // Draw the blurred image
+            ctx.filter = 'blur(10px)'
+            // We need to draw the original image part here, but adjusted for scale and offset
+            // Since we are already scaled by dpr and scaleFactor (via ctx.scale), 
+            // and offset is 'padding', we draw the image at (padding, padding) with (imgWidth, imgHeight)
+            const scaleFactor = scale / 100
+            const logicalWidth = screenshot?.logicalWidth || imageRef.current.width
+            const logicalHeight = screenshot?.logicalHeight || imageRef.current.height
+            const imgWidth = logicalWidth * scaleFactor
+            const imgHeight = logicalHeight * scaleFactor
+            
+            ctx.drawImage(imageRef.current, padding, padding, imgWidth, imgHeight)
+            ctx.restore()
+            
+            // Draw a subtle border around the blur
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+            ctx.lineWidth = 1
+            ctx.strokeRect(x, y, w, h)
+          }
+          break
+        case 'step':
+          const stepSize = 25 * scaleFactor
+          ctx.beginPath()
+          ctx.arc(drawX, drawY, stepSize / 2, 0, Math.PI * 2)
+          ctx.fill()
+          
+          ctx.fillStyle = '#fff'
+          ctx.font = `bold ${14 * scaleFactor}px system-ui`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          
+          // Calculate step number based on its index in annotations
+          const stepIndex = annotations.filter(a => a.type === 'step').indexOf(ann)
+          const stepNum = ann.stepNumber || (stepIndex !== -1 ? stepIndex + 1 : annotations.filter(a => a.type === 'step').length + (currentAnnotation?.type === 'step' ? 1 : 0))
+          
+          ctx.fillText(stepNum.toString(), drawX, drawY)
+          break
       }
       ctx.restore()
     })
   }
 
-  // Helper function to get text dimensions
+  // Singleton off-screen canvas reused for text measurement.
+  // Previously a new <canvas> DOM node was created on every call (up to 1440 allocs/sec
+  // at 144 Hz with 10 text annotations). Now it's allocated once at module level.
+  const _measureCtx = useRef<CanvasRenderingContext2D | null>(null)
+  if (!_measureCtx.current) {
+    const mc = document.createElement('canvas')
+    _measureCtx.current = mc.getContext('2d')
+  }
+
   const getTextDimensions = (text: string, fontSize: number = 16) => {
-    // Create a temporary canvas to measure text
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')!
+    const ctx = _measureCtx.current
+    if (!ctx) return { width: 0, height: fontSize * 1.2 }
     ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`
-    const metrics = ctx.measureText(text)
     return {
-      width: metrics.width,
-      height: fontSize * 1.2 // Approximate line height
+      width:  ctx.measureText(text).width,
+      height: fontSize * 1.2
     }
   }
 
@@ -793,69 +912,85 @@ export default function App() {
   }, [pan, scale])
   
 
+  const [isZooming, setIsZooming] = useState(false)
+  const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const zoomUpdateRef = useRef<number | null>(null)
+
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     const handleWheelNative = (e: WheelEvent) => {
       e.preventDefault()
+      
+      setIsZooming(true)
+      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
+      zoomTimeoutRef.current = setTimeout(() => setIsZooming(false), 150)
 
-      let delta = e.deltaY
-      if (e.deltaMode === 1) delta *= 20 // line mode
-      if (e.deltaMode === 2) delta *= 300 // page mode
+      if (zoomUpdateRef.current) cancelAnimationFrame(zoomUpdateRef.current)
 
-      const currentScale = scaleRef.current
-      const currentPan = panRef.current
+      zoomUpdateRef.current = requestAnimationFrame(() => {
+        let delta = e.deltaY
+        if (e.deltaMode === 1) delta *= 20 // line mode
+        if (e.deltaMode === 2) delta *= 300 // page mode
 
-      // Small steps per event — no accumulation, no scroll debt
-      const zoomFactor = Math.exp(-delta * 0.0008)
-      const rawScale = currentScale * zoomFactor
-      const newScale = Math.max(10, Math.min(100, Math.round(rawScale * 100) / 100))
+        const currentScale = scaleRef.current
+        const currentPan = panRef.current
 
-      if (newScale === currentScale) return
+        // Faster zoom factor (0.0015 instead of 0.001) for snappier feel
+        const zoomFactor = Math.exp(-delta * 0.0015)
+        const rawScale = currentScale * zoomFactor
+        const newScale = Math.max(10, Math.min(100, Math.round(rawScale * 100) / 100))
 
-      const rect = container.getBoundingClientRect()
-      const pointerX = e.clientX - rect.left
-      const pointerY = e.clientY - rect.top
+        if (newScale === currentScale) return
 
-      let currentPanX = 0
-      let currentPanY = 0
+        const rect = container.getBoundingClientRect()
+        const pointerX = e.clientX - rect.left
+        const pointerY = e.clientY - rect.top
 
-      if (currentPan) {
-        currentPanX = currentPan.x
-        currentPanY = currentPan.y
-      } else {
-        const canvasEl = canvasRef.current
-        if (canvasEl) {
-          currentPanX = rect.width / 2 - canvasEl.offsetWidth / 2
-          currentPanY = rect.height / 2 - canvasEl.offsetHeight / 2
+        let currentPanX = 0
+        let currentPanY = 0
+
+        if (currentPan) {
+          currentPanX = currentPan.x
+          currentPanY = currentPan.y
+        } else {
+          const canvasEl = canvasRef.current
+          if (canvasEl) {
+            currentPanX = rect.width / 2 - canvasEl.offsetWidth / 2
+            currentPanY = rect.height / 2 - canvasEl.offsetHeight / 2
+          }
         }
-      }
 
-      const canvasX = pointerX - currentPanX
-      const canvasY = pointerY - currentPanY
-      const scaleRatio = newScale / currentScale
+        const canvasX = pointerX - currentPanX
+        const canvasY = pointerY - currentPanY
+        const scaleRatio = newScale / currentScale
 
-      const newCanvasX = (canvasX - padding) * scaleRatio + padding
-      const newCanvasY = (canvasY - padding) * scaleRatio + padding
+        const newCanvasX = (canvasX - padding) * scaleRatio + padding
+        const newCanvasY = (canvasY - padding) * scaleRatio + padding
 
-      const newPan = { x: pointerX - newCanvasX, y: pointerY - newCanvasY }
+        const newPan = { x: pointerX - newCanvasX, y: pointerY - newCanvasY }
 
-      // Sync refs immediately so next event sees updated values
-      panRef.current = newPan
-      scaleRef.current = newScale
+        // Sync refs immediately
+        panRef.current = newPan
+        scaleRef.current = newScale
 
-      setPan(newPan)
-      setScale(newScale)
+        setPan(newPan)
+        setScale(newScale)
+      })
     }
 
     container.addEventListener('wheel', handleWheelNative, { passive: false })
-    return () => container.removeEventListener('wheel', handleWheelNative)
+    return () => {
+      container.removeEventListener('wheel', handleWheelNative)
+      if (zoomUpdateRef.current) cancelAnimationFrame(zoomUpdateRef.current)
+      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current)
+    }
   }, [padding, view, screenshot])
 
   const startPanning = (clientX: number, clientY: number) => {
     setIsPanning(true)
-    setLastMousePos({ x: clientX, y: clientY })
+    lastMousePosRef.current = { x: clientX, y: clientY }
     if (pan === null && containerRef.current && canvasRef.current) {
       const rect = containerRef.current.getBoundingClientRect()
       setPan({
@@ -953,12 +1088,21 @@ export default function App() {
     }
   }
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  // Use RAF for Panning state updates to prevent re-render lag
+  const panUpdateRef = useRef<number | null>(null)
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isPanning) {
-      const dx = e.clientX - lastMousePos.x
-      const dy = e.clientY - lastMousePos.y
-      setPan(prev => prev ? { x: prev.x + dx, y: prev.y + dy } : null)
-      setLastMousePos({ x: e.clientX, y: e.clientY })
+      if (panUpdateRef.current) cancelAnimationFrame(panUpdateRef.current)
+
+      const dx = e.clientX - lastMousePosRef.current.x
+      const dy = e.clientY - lastMousePosRef.current.y
+      // Update the ref synchronously so next event gets the correct delta.
+      // No setState here — this is the key to eliminating 144 re-renders/sec.
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY }
+
+      panUpdateRef.current = requestAnimationFrame(() => {
+        setPan(prev => prev ? { x: prev.x + dx, y: prev.y + dy } : null)
+      })
       return
     }
 
@@ -999,7 +1143,7 @@ export default function App() {
     if (isDrawing && currentAnnotation) {
       setCurrentAnnotation({ ...currentAnnotation, endX: x, endY: y })
     }
-  }
+  }, [isPanning, isCropping, cropRect, isDragging, draggedAnnotation, dragOffset, isDrawing, currentAnnotation, padding, scale])
 
   const handleMouseUp = () => {
     if (isPanning) {
@@ -1132,14 +1276,21 @@ export default function App() {
 
     const result = await window.electronAPI?.showSaveDialog()
     if (result && result.filePath) {
-      // Export at full resolution (including DPR)
-      const dataUrl = canvas.toDataURL('image/png')
       const format = result.filePath.endsWith('.jpg') || result.filePath.endsWith('.jpeg') ? 'jpg' : 'png'
-      await window.electronAPI?.saveImage({ 
-        dataUrl, 
-        filePath: result.filePath,
-        format
-      })
+      const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png'
+
+      try {
+        // Use canvas.toBlob → Uint8Array (zero-copy, no base64 inflation)
+        const blob = await new Promise<Blob>((resolve, reject) =>
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), mimeType)
+        )
+        const buffer = await blob.arrayBuffer()
+        await window.electronAPI?.saveImageBuffer(buffer, result.filePath)
+      } catch {
+        // Fallback to dataUrl path if the buffer API isn't available
+        const dataUrl = canvas.toDataURL(mimeType)
+        await window.electronAPI?.saveImage({ dataUrl, filePath: result.filePath, format })
+      }
       toast.success('Screenshot saved!')
     }
   }
@@ -1165,6 +1316,29 @@ export default function App() {
       toast.error('Failed to start region capture')
     }
   }
+
+  const handlePin = useCallback(() => {
+    if (screenshot?.dataUrl) {
+      window.electronAPI?.pinToScreen(screenshot.dataUrl)
+      toast.success('Pinned to screen')
+    }
+  }, [screenshot])
+
+  const handleExtractText = useCallback(async () => {
+    if (!screenshot?.dataUrl) return
+    const id = toast.loading('Extracting text...')
+    try {
+      // Lazy import: Tesseract downloads ~15 MB of WASM + language data on first use.
+      // Deferring it here avoids paying that cost at startup.
+      const { default: Tesseract } = await import('tesseract.js')
+      const { data: { text } } = await Tesseract.recognize(screenshot.dataUrl)
+      await navigator.clipboard.writeText(text)
+      toast.success('Text copied to clipboard!', { id })
+    } catch (error) {
+      console.error('OCR Error:', error)
+      toast.error('Failed to extract text', { id })
+    }
+  }, [screenshot])
 
   useEffect(() => {
     renderCanvas()
@@ -1204,156 +1378,208 @@ export default function App() {
 
   if (view === 'editor' && screenshot) {
     return (
-      <div className="h-full flex flex-col bg-zinc-950 overflow-hidden selection:bg-indigo-500/30">
-        <TitleBar 
-          onOpenSettings={() => {
-            window.location.hash = 'settings'
-            setCurrentView('settings')
-          }}
-          onCaptureRegion={handleCaptureRegion}
-        />
-        <Toaster position="top-center" expand={false} richColors />
-        
-        <div className="flex-1 flex overflow-hidden">
-          <div 
-            ref={containerRef}
-            onMouseDown={handleContainerMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            className={`flex-1 relative overflow-hidden bg-[radial-gradient(#1e1e24_1px,transparent_1px)] [background-size:32px_32px] ${isPanning ? 'cursor-grabbing' : ''}`}
-          >
-            <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none" />
-            
-            <div 
-              className={`absolute animate-in zoom-in-95 fade-in ${background.type === 'transparent' ? 'transparent-checkerboard' : ''} rounded-2xl shadow-[0_50px_100px_-20px_rgba(0,0,0,0.7)]`}
-              style={{
-                left: pan ? pan.x : '50%',
-                top: pan ? pan.y : '50%',
-                transform: pan ? 'none' : 'translate(-50%, -50%)'
-              }}
-            >
-              <canvas
-                ref={canvasRef}
-                onMouseDown={handleMouseDown}
-                className={`block transition-shadow duration-500 ${
-                  selectedTool === 'hand' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') :
-                  selectedTool === 'select' ? (isDragging ? 'cursor-grabbing' : 'cursor-default') : 
-                  'cursor-crosshair'
-                }`}
-              />
+      <div className="h-full flex flex-col overflow-hidden transparent-selection relative text-white">
+        <div id="grid-bg"></div>
+        <div id="aurora">
+          <div className="aurora-blob"></div>
+          <div className="aurora-blob"></div>
+          <div className="aurora-blob"></div>
+        </div>
 
-              {/* Crop Actions */}
-              {selectedTool === 'crop' && cropRect && !isCropping && (
-                <div 
-                  className="absolute z-50 flex gap-2 animate-in fade-in zoom-in-95 duration-200"
-                  style={{
-                    left: Math.min(cropRect.x, cropRect.endX) * (scale / 100) + padding,
-                    top: Math.max(cropRect.y, cropRect.endY) * (scale / 100) + padding + 10
-                  }}
-                >
-                  {Math.abs(cropRect.endX - cropRect.x) > 5 && Math.abs(cropRect.endY - cropRect.y) > 5 && (
-                    <button
-                      onClick={handleCrop}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow-lg hover:bg-indigo-500 transition-colors"
-                    >
-                      Confirm Crop
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setCropRect(null)}
-                    className="px-4 py-2 bg-zinc-800 text-white rounded-lg text-sm font-bold shadow-lg hover:bg-zinc-700 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
-            </div>
-            
-            {/* Text Input Modal */}
-            {showTextInput && (
+        <div className="relative z-10 flex flex-col h-full pointer-events-none">
+          <div className="pointer-events-auto">
+            <TitleBar 
+              onOpenSettings={() => {
+                window.location.hash = 'settings'
+                setCurrentView('settings')
+              }}
+              onCaptureRegion={handleCaptureRegion}
+            />
+          </div>
+          <Toaster position="top-center" expand={false} richColors />
+          
+          <div className="flex-1 flex overflow-hidden pointer-events-auto">
+            <div 
+              ref={containerRef}
+              onMouseDown={handleContainerMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              className={`flex-1 relative overflow-hidden ${isPanning ? 'cursor-grabbing' : ''}`}
+            >
+              
               <div 
-                className="fixed bg-zinc-900 border border-white/10 rounded-lg p-3 z-50 shadow-2xl"
+                className={`absolute animate-in zoom-in-95 fade-in ${background.type === 'transparent' ? 'transparent-checkerboard' : ''} rounded-[22px] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.8)] will-change-transform`}
                 style={{
-                  left: textInputPosition.x,
-                  top: textInputPosition.y - 50
+                  left: pan ? pan.x : '50%',
+                  top: pan ? pan.y : '50%',
+                  transform: pan ? 'none' : 'translate(-50%, -50%)',
+                  transition: (isPanning || isZooming) ? 'none' : 'all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1)'
                 }}
               >
-                <form onSubmit={handleTextSubmit} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={textInputValue}
-                    onChange={(e) => setTextInputValue(e.target.value)}
-                    placeholder="Enter text..."
-                    className="px-3 py-2 bg-zinc-800 border border-white/10 rounded text-white text-sm focus:outline-none focus:border-indigo-500"
-                    autoFocus
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-500 transition-colors"
+                <canvas
+                  ref={canvasRef}
+                  onMouseDown={handleMouseDown}
+                  className={`block transition-shadow duration-500 rounded-[22px] ${
+                    selectedTool === 'hand' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') :
+                    selectedTool === 'select' ? (isDragging ? 'cursor-grabbing' : 'cursor-default') : 
+                    'cursor-crosshair'
+                  }`}
+                />
+
+                {/* Crop Actions */}
+                {selectedTool === 'crop' && cropRect && !isCropping && (
+                  <div 
+                    className="absolute z-50 flex gap-2 animate-in fade-in zoom-in-95 duration-200"
+                    style={{
+                      left: Math.min(cropRect.x, cropRect.endX) * (scale / 100) + padding,
+                      top: Math.max(cropRect.y, cropRect.endY) * (scale / 100) + padding + 10
+                    }}
                   >
-                    Add
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowTextInput(false)}
-                    className="px-3 py-2 bg-zinc-700 text-white rounded text-sm hover:bg-zinc-600 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </form>
+                    {Math.abs(cropRect.endX - cropRect.x) > 5 && Math.abs(cropRect.endY - cropRect.y) > 5 && (
+                      <button
+                        onClick={handleCrop}
+                        className="btn-primary"
+                      >
+                        Confirm Crop
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setCropRect(null)}
+                      className="px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 text-white/90 rounded-full text-sm font-medium hover:bg-black/60 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Text Input Modal */}
+              {showTextInput && (
+                <div 
+                  className="fixed expertise-card p-3 z-50 shadow-2xl"
+                  style={{
+                    left: textInputPosition.x,
+                    top: textInputPosition.y - 50
+                  }}
+                >
+                  <form onSubmit={handleTextSubmit} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={textInputValue}
+                      onChange={(e) => setTextInputValue(e.target.value)}
+                      placeholder="Enter text..."
+                      className="px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-white/40"
+                      autoFocus
+                    />
+                    <button type="submit" className="btn-primary" style={{ padding: '0.4rem 1rem' }}>
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTextInput(false)}
+                      className="px-3 py-2 bg-white/5 border border-white/10 text-white rounded-lg text-sm hover:bg-white/10 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                </div>
+              )}
+              
+              <Toolbar 
+                selectedTool={selectedTool} setSelectedTool={setSelectedTool}
+                annotationColor={annotationColor} setAnnotationColor={setAnnotationColor}
+                onSave={handleSave} onCopy={handleCopy}
+                onClearAnnotations={onClearAnnotations}
+                onBackToPicker={() => {
+                  handleCopy(true) // Silent auto-copy when going back
+                  setView('picker')
+                }}
+                onUndo={handleUndo} onRedo={handleRedo}
+                canUndo={historyIndex > 0}
+                canRedo={historyIndex < history.length - 1}
+                onPin={handlePin}
+                onExtractText={handleExtractText}
+              />
+
+              {/* Sidebar Toggle Button (Mobile/Small Screens) */}
+              {isSmallScreen && (
+                <button
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className="fixed top-14 right-6 p-3 bg-white/[0.04] hover:bg-white/[0.08] backdrop-blur-md border border-white/10 rounded-full text-white/50 hover:text-white transition-all z-50 shadow-lg cursor-default"
+                  title={sidebarOpen ? "Close Inspector" : "Open Inspector"}
+                >
+                  {sidebarOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
+                </button>
+              )}
+            </div>
+
+            {(sidebarOpen || !isSmallScreen) && (
+              <div className={`${isSmallScreen ? 'fixed inset-y-0 right-0 z-[60] animate-in slide-in-from-right duration-300' : ''}`}>
+                <Sidebar 
+                  background={background} setBackground={setBackground}
+                  shadow={shadow} setShadow={setShadow}
+                  border={border} setBorder={setBorder}
+                  padding={padding} setPadding={setPadding}
+                  scale={scale} setScale={handleScaleChange}
+                  onClose={isSmallScreen ? () => setSidebarOpen(false) : undefined}
+                  isSmallScreen={isSmallScreen}
+                />
               </div>
             )}
             
-            <Toolbar 
-              selectedTool={selectedTool} setSelectedTool={setSelectedTool}
-              annotationColor={annotationColor} setAnnotationColor={setAnnotationColor}
-              onSave={handleSave} onCopy={handleCopy}
-              onClearAnnotations={onClearAnnotations}
-              onBackToPicker={() => {
-                handleCopy(true) // Silent auto-copy when going back
-                setView('picker')
-              }}
-              onUndo={handleUndo} onRedo={handleRedo}
-              canUndo={historyIndex > 0}
-              canRedo={historyIndex < history.length - 1}
-            />
+            {/* Backdrop for mobile sidebar */}
+            {isSmallScreen && sidebarOpen && (
+              <div 
+                className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[55] animate-in fade-in duration-300"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
           </div>
-
-          <Sidebar 
-            background={background} setBackground={setBackground}
-            shadow={shadow} setShadow={setShadow}
-            border={border} setBorder={setBorder}
-            padding={padding} setPadding={setPadding}
-            scale={scale} setScale={handleScaleChange}
-          />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-zinc-950">
-      <TitleBar 
-        onOpenSettings={() => {
-          window.location.hash = 'settings'
-          setCurrentView('settings')
-        }}
-        onCaptureRegion={handleCaptureRegion}
-      />
-      <div className="flex-1 overflow-y-auto custom-scrollbar animate-mesh">
-        <div className="min-h-full w-full bg-zinc-950/40 backdrop-blur-[2px]">
-          <Toaster position="top-center" expand={false} richColors />
-          <Header 
-            onCaptureFullscreen={handleCaptureFullscreen}
+    <div className="h-full flex flex-col overflow-hidden relative">
+      <div id="grid-bg"></div>
+      <div id="aurora">
+        <div className="aurora-blob"></div>
+        <div className="aurora-blob"></div>
+        <div className="aurora-blob"></div>
+      </div>
+      
+      <div className="relative z-10 flex flex-col h-full pointer-events-none">
+        <div className="pointer-events-auto">
+          <TitleBar 
+            onOpenSettings={() => {
+              window.location.hash = 'settings'
+              setCurrentView('settings')
+            }}
             onCaptureRegion={handleCaptureRegion}
-            loading={loading}
-            currentHotkey={appSettings?.captureHotkey || 'Ctrl+Shift+S'}
           />
-          <SourcePicker 
-            sources={sources} loading={loading} 
-            onCaptureSource={handleCaptureSource} onRefresh={loadSources} 
-          />
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar pointer-events-auto">
+          <div className="min-h-full w-full flex flex-col items-center">
+            <Toaster position="top-center" expand={false} richColors />
+            
+            <div className="w-full max-w-5xl mx-auto px-8 pt-12 pb-0 animate-in slide-in-from-bottom-8 fade-in duration-1000">
+              <Header
+                onCaptureFullscreen={handleCaptureFullscreen}
+                onCaptureRegion={handleCaptureRegion}
+                loading={loading}
+                currentHotkey={appSettings?.captureHotkey || 'Ctrl+Shift+S'}
+              />
+            </div>
+            <div className="w-full max-w-5xl mx-auto px-8 py-8 animate-in slide-in-from-bottom-8 fade-in duration-1000 delay-150">
+              <SourcePicker 
+                sources={sources} loading={loading} 
+                onCaptureSource={handleCaptureSource} onRefresh={loadSources}
+                history={historyScreenshots}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>

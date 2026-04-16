@@ -1,4 +1,5 @@
-import { Camera, Monitor, Keyboard, Sparkles, Settings, Crop } from 'lucide-react'
+import { memo } from 'react'
+import { Monitor, Keyboard, Settings, Crop } from 'lucide-react'
 
 interface HeaderProps {
   onCaptureFullscreen: () => void
@@ -7,69 +8,66 @@ interface HeaderProps {
   currentHotkey: string
 }
 
-export default function Header({ onCaptureFullscreen, onCaptureRegion, loading, currentHotkey }: HeaderProps) {
+export default memo(function Header({ onCaptureFullscreen, onCaptureRegion, loading, currentHotkey }: HeaderProps) {
   const openSettings = () => {
     window.location.hash = 'settings'
   }
 
   return (
-    <header className="relative py-24 px-6 overflow-hidden">
-      {/* Settings Button */}
+    <header className="relative py-20 px-6 overflow-hidden flex flex-col items-center text-center">
+      
+      {/* Settings Button (Bottom Right Absolute) */}
       <button
         onClick={openSettings}
-        className="absolute top-6 right-6 p-3 bg-zinc-800/80 hover:bg-zinc-700/80 backdrop-blur-md border border-white/10 rounded-xl text-zinc-400 hover:text-white transition-all group z-10"
+        className="fixed bottom-6 right-6 p-3 bg-white/[0.04] hover:bg-white/[0.08] backdrop-blur-md border border-white/10 rounded-full text-white/50 hover:text-white transition-all group z-50 shadow-lg cursor-default"
         title="Settings"
       >
         <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
       </button>
 
-      {/* Background decoration */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[400px] bg-indigo-500/10 blur-[120px] rounded-full pointer-events-none" />
-      
-      <div className="relative flex flex-col items-center text-center max-w-4xl mx-auto">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-bold tracking-widest uppercase mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          <Sparkles className="w-3 h-3" />
-          <span>Next Generation Capture</span>
-        </div>
-
-        <div className="flex items-center gap-4 mb-8 group animate-in zoom-in-95 duration-1000">
-          <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-500/20 group-hover:rotate-12 transition-transform duration-500">
-            <Camera className="text-white w-9 h-9" />
-          </div>
-          <h1 className="text-6xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-b from-white to-zinc-500">
-            OpenSnap
-          </h1>
-        </div>
+      {/* Hero Content */}
+      <div className="relative z-10 w-full max-w-4xl flex flex-col items-center">
         
-        <p className="text-zinc-400 text-xl mb-12 max-w-2xl leading-relaxed animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
-          Transform your screen captures into stunning visual assets with professional backgrounds, 
-          precise annotations, and modern effects.
-        </p>
+        {/* Logo */}
+        <div className="mb-8 animate-in fade-in zoom-in duration-1000">
+          <img src="/icon.svg" className="w-24 h-24 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]" alt="OpenSnap Logo" />
+        </div>
 
-        <div className="flex flex-wrap justify-center gap-6 mb-12 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-300">
+        {/* Hero Typography */}
+        <h1 className="text-5xl md:text-7xl lg:text-[5rem] font-bold text-white tracking-[-0.05em] mb-8 md:mb-12 drop-shadow-2xl">
+          OpenSnap
+        </h1>
+
+        {/* CTAs */}
+        <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-4 sm:gap-5 mb-10 md:mb-14 px-4">
           <button
             onClick={onCaptureRegion}
             disabled={loading}
-            className="px-10 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white disabled:opacity-50 font-bold text-lg rounded-2xl transition-all flex items-center gap-3 group shadow-2xl shadow-indigo-500/20 active:scale-95 hover:-translate-y-1"
+            className="btn-primary w-full sm:w-auto"
+            style={{ padding: '1rem 2.4rem', fontSize: '0.95rem' }}
           >
-            <Crop className="w-6 h-6 group-hover:scale-110 transition-transform" />
+            <Crop className="w-5 h-5" />
             Capture Region
           </button>
           <button
             onClick={onCaptureFullscreen}
             disabled={loading}
-            className="px-10 py-4 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 font-bold text-lg rounded-2xl transition-all flex items-center gap-3 group shadow-2xl shadow-white/10 active:scale-95 hover:-translate-y-1"
+            className="inline-flex items-center justify-center gap-2 px-[2.4rem] py-[1rem] bg-white/[0.04] border-[1.5px] border-white/10 text-white rounded-full font-semibold text-[0.95rem] transition-all backdrop-blur-xl hover:bg-white/[0.08] hover:border-white/20 hover:-translate-y-[2px] shadow-lg active:scale-95 w-full sm:w-auto"
           >
-            <Monitor className="w-6 h-6 group-hover:scale-110 transition-transform" />
-            Capture Fullscreen
+            <Monitor className="w-5 h-5" />
+            Capture Full Screen
           </button>
         </div>
 
-        <div className="flex items-center gap-3 px-6 py-3 bg-zinc-900/40 backdrop-blur-md border border-white/5 rounded-2xl text-zinc-500 text-sm animate-in fade-in slide-in-from-bottom-16 duration-1000 delay-500">
+        {/* Shortcut Info */}
+        <div className="flex items-center gap-3 px-6 py-3 bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl text-white/50 text-[13px] cursor-default shadow-lg">
           <Keyboard className="w-4 h-4" />
-          <span>Global Shortcut: <kbd className="bg-zinc-800/80 px-2 py-1 rounded-lg text-zinc-300 font-mono text-xs border border-white/5">{currentHotkey}</kbd></span>
+          <span>Global Shortcut</span>
+          <div className="w-px h-4 bg-white/10 mx-1"></div>
+          <kbd className="bg-white/10 px-2 py-1 rounded-md text-white/80 font-mono text-xs border border-white/10">{currentHotkey}</kbd>
         </div>
+
       </div>
     </header>
   )
-}
+})
